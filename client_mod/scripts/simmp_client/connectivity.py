@@ -68,6 +68,7 @@ class MultiplayerClient:
         self.time_by_player = None
         self.time_ticks = None
         self.time_ready_sent = False
+        self.zone_ready_id = None
         self._ready_pending_reason = ""
         self.clock_interval = 1.5
         self._last_clock_tick = 0.0
@@ -375,8 +376,10 @@ class MultiplayerClient:
         a start, so nobody plays ahead. Once the gate is open, any local
         divergence beyond the echo window is a deliberate player change (last
         change wins) and is broadcast as TIME_SPEED. TIME_READY is re-sent
-        automatically the first time the zone is running (and again after any
-        WELCOME, i.e. a fresh or resumed connection).
+        automatically the first time the zone is running, again after any
+        WELCOME (fresh or resumed connection), and whenever the running zone
+        changes id mid-session (travel), which makes the server re-gate the
+        room until every member has arrived in the new zone.
         """
         engine = self.engine
         if engine is None or not engine.connected:
@@ -390,11 +393,14 @@ class MultiplayerClient:
                     self._log("TIME", "TIME_READY waiting: %s" % reason)
             return
         now = time.time()
-        if not self.time_ready_sent:
-            zone_id = zone_state.zone_id
-            if zone_id is None or not engine.send_time_ready(zone_id):
+        zone_id = zone_state.zone_id
+        if zone_id is None:
+            return
+        if not self.time_ready_sent or self.zone_ready_id != zone_id:
+            if not engine.send_time_ready(zone_id):
                 return
             self.time_ready_sent = True
+            self.zone_ready_id = zone_id
             self._ready_pending_reason = ""
             self._log("TIME", "TIME_READY zone=%s" % zone_id)
         if now < self._last_clock_tick:
@@ -599,6 +605,7 @@ class MultiplayerClient:
         if message_type == "WELCOME":
             self.session.apply_welcome(payload)
             self.time_ready_sent = False
+            self.zone_ready_id = None
             self.time_gate = True
             self._log("NET", "Player ID: %s (room %s)" % (payload["player_id"], payload["room_id"]))
         elif message_type == "ROOM_STATE":

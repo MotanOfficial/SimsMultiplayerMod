@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -250,6 +251,99 @@ class TimeServerFlowTests(unittest.TestCase):
             await alice.close()
 
         self.run_flow(_time_server(flow))
+
+    def test_zone_change_re_gates_room_until_everyone_arrives(self):
+        async def flow(server, port):
+            alice = await self._hello(port, "Alice")
+            await self._last_sync(alice)
+            bob = await self._hello(port, "Bob")
+            await self._last_sync(bob)
+            await self._last_sync(alice)
+
+            await alice.send(msg.make_time_ready(100))
+            await bob.send(msg.make_time_ready(100))
+            a_sync = await self._last_sync(alice)
+            b_sync = await self._last_sync(bob)
+            self.assertEqual(a_sync["payload"]["speed"], 1, "both ready in zone 100")
+            self.assertEqual(b_sync["payload"]["speed"], 1)
+
+            await bob.send(msg.make_time_ready(200))
+            a_sync = await self._last_sync(alice)
+            b_sync = await self._last_sync(bob)
+            self.assertEqual(a_sync["payload"]["speed"], 0, "zone flip re-gates: Alice paused")
+            self.assertEqual(b_sync["payload"]["speed"], 0, "only Bob re-readied in new zone")
+
+            await alice.send(msg.make_time_ready(200))
+            a_sync = await self._last_sync(alice)
+            b_sync = await self._last_sync(bob)
+            self.assertEqual(a_sync["payload"]["speed"], 1, "both ready in zone 200: open again")
+            self.assertEqual(b_sync["payload"]["speed"], 1)
+
+            await alice.close()
+            await bob.close()
+
+        self.run_flow(_time_server(flow))
+
+
+class TimeClientTickTests(unittest.TestCase):
+    class FakeEngine(object):
+        def __init__(self):
+            self.connected = True
+            self.ready_calls = []
+            self.speed_calls = []
+
+        def send_time_ready(self, zone_id):
+            self.ready_calls.append(zone_id)
+            return True
+
+        def send_time_speed(self, speed, ticks=None):
+            self.speed_calls.append((speed, ticks))
+            return True
+
+    def _client(self):
+        client = MultiplayerClient(client_name="Alice")
+        client.engine = self.FakeEngine()
+        client.time_gate = False
+        client.time_ready_sent = True
+        client.time_speed = 1
+        client._last_clock_tick = time.time()  # settled; no clock-rate gate hop
+        return client
+
+    def _zone_state(self, zone_id):
+        return mock.patch(
+            "simmp_client.connectivity.game_hooks.current_zone_running_state",
+            return_value=mock.Mock(running=True, zone_id=zone_id, loading=False, has_clock=True, state="RUNNING"),
+        )
+
+    def test_zone_flip_resends_time_ready(self):
+        client = self._client()
+        client.zone_ready_id = 100
+        with self._zone_state(200), mock.patch(
+            "simmp_client.connectivity.game_hooks.get_clock_speed", return_value=1
+        ):
+            client._maybe_sync_clock()
+        self.assertEqual(client.engine.ready_calls, [200])
+        self.assertEqual(client.zone_ready_id, 200)
+        self.assertTrue(client.time_ready_sent)
+
+    def test_same_zone_does_not_resend(self):
+        client = self._client()
+        client.zone_ready_id = 100
+        with self._zone_state(100), mock.patch(
+            "simmp_client.connectivity.game_hooks.get_clock_speed", return_value=1
+        ):
+            client._maybe_sync_clock()
+        self.assertEqual(client.engine.ready_calls, [])
+
+    def test_welcome_resets_zone_ready_id(self):
+        client = MultiplayerClient(client_name="Alice")
+        client.time_ready_sent = True
+        client.zone_ready_id = 100
+        client.time_gate = False
+        client._handle_message(msg.make_welcome(1, "lobby", 1.0))
+        self.assertFalse(client.time_ready_sent)
+        self.assertIsNone(client.zone_ready_id)
+        self.assertTrue(client.time_gate)
 
 
 class TimeClientHandlerTests(unittest.TestCase):

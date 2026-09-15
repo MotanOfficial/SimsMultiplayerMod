@@ -107,6 +107,7 @@ class Handlers:
             exclude={player.player_id},
         )
         player.clock_ready = False
+        player.clock_zone = None
         await self.sync_clock(room_id)
 
     async def _handle_join_room(self, conn, frame):
@@ -487,11 +488,24 @@ class Handlers:
             return
 
         server = self._server
+        payload = frame["payload"]
+        zone_id = payload["zone_id"]
+        player = server.session.get_player(conn.player_id)
+        if player.clock_zone is not None and player.clock_zone != zone_id:
+            if player.clock_ready:
+                server.session.clear_room_clock_ready(conn.room_id)
+                server.logger.info(
+                    "[MP][SYNC] Player %s left zone %s -> %s; room re-gating",
+                    conn.player_id,
+                    player.clock_zone,
+                    zone_id,
+                )
+        player.clock_zone = zone_id
         server.session.set_clock_ready(conn.player_id)
         server.logger.info(
             "[MP][SYNC] Player %s time-ready zone=%s",
             conn.player_id,
-            frame["payload"]["zone_id"],
+            zone_id,
         )
         await self.sync_clock(conn.room_id)
 

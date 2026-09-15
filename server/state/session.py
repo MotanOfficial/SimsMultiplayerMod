@@ -20,6 +20,7 @@ class Player:
         self.last_event_seq = 0
         self.clock_sync = None
         self.clock_ready = False
+        self.clock_zone = None
         self.disconnected_at = None
 
     @property
@@ -404,6 +405,16 @@ player_id).
             return False
         player.clock_ready = True
         return True
+
+    def clear_room_clock_ready(self, room_id):
+        """Drop readiness for every member of a room (used on zone change).
+
+        The time gate then stays closed until each member reports ready in the
+        new zone, so nobody plays ahead while a group travels.
+        """
+        for player in self._players.values():
+            if player.room_id == room_id:
+                player.clock_ready = False
 
     def clock_gate_open(self, room_id):
         """True when every participant (members + ghosts) has signalled ready."""
