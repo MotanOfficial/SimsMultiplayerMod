@@ -20,7 +20,10 @@ import shutil
 import sys
 import zipfile
 
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
+PROJECT_ROOT = pathlib.Path(
+    getattr(sys, "_MEIPASS", None)
+    or pathlib.Path(__file__).resolve().parent.parent
+)
 SCRIPTS_DIR = PROJECT_ROOT / "client_mod" / "scripts"
 PROTOCOL_DIR = PROJECT_ROOT / "protocol" / "simmp"
 BUILD_DIR = PROJECT_ROOT / "client_mod" / "build"

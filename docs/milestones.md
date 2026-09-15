@@ -680,11 +680,19 @@ button that launches the game already configured to auto-connect.
   bundles the launcher + lobby + server + protocol + mod sources so the
   target machine needs nothing installed; `Run Launcher.bat` written next to
   the exe. Build: `python tools/build_app.py`.
+- [x] Frozen-bundle robustness: in the one-file .exe the bundled data lives
+  under `sys._MEIPASS`, so the launcher, the lobby helper and
+  `build_script_mod` resolve their project root via `_MEIPASS` (dev falls
+  back to `__file__`). A headless self-test (`SIM4_MP_SELFTEST=<dir>`, runs
+  the exact "Install mod" path and dumps result.json) proved the .exe
+  installs the full mod from the bundle.
 - [x] Tests: `tests/test_game_paths.py` (doc/mods/saves/exe detection +
   registry), `tests/test_lobby.py` (real-server end-to-end: push to a
   connected player reaches 1, solo reaches 0, join receives the save into
-  the intended folder, server start/stop/restart and port-conflict guard).
-  Full suite: `python tests/run_tests.py` -> **266 tests OK**.
+  the intended folder, server start/stop/restart and port-conflict guard),
+  `tests/test_launcher_gui.py` (deferred-error callbacks, LAN IP dropdown,
+  frozen self-test install). Full suite:
+  `python tests/run_tests.py` -> **267 tests OK**.
 - [ ] Manual two-PC handoff test: run the built exe on both machines, host
   opens a lobby + shares a save, the other joins + receives, both Start
   game and land in the shared household. Requires two PCs on the same LAN

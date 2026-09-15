@@ -7,8 +7,10 @@ deferred-error callbacks that previously crashed with the classic Python
 the Tk thread, after CPython had deleted the exception variable.
 """
 
+import json
 import os
 import sys
+import tempfile
 import time
 import unittest
 
@@ -66,6 +68,21 @@ class LauncherGuiTests(unittest.TestCase):
         self.assertIn("Could not receive the save", text)
         self.assertNotIn("free variable 'exc'", text)
         self.assertIn("normal", app.btn_join.cget("state"))
+
+    def test_selftest_install_lands_full_mod(self):
+        # _run_selftest drives the same code path as the "Install mod" button
+        # (scripts/bundle-root resolution + build_script_mod.cmd_dev) without
+        # needing a display; the frozen .exe runs it via SIM4_MP_SELFTEST.
+        dest = tempfile.mkdtemp()
+        launcher._run_selftest(dest)
+        with open(os.path.join(dest, "result.json"), encoding="utf-8") as handle:
+            result = json.load(handle)
+        self.assertTrue(result.get("ok"), result)
+        self.assertTrue(result["project_root"])
+        self.assertEqual(result["project_root"], launcher.ROOT)
+        self.assertTrue(
+            os.path.isfile(os.path.join(result["scripts"], "simmp_client", "sims4_plugin.py"))
+        )
 
 
 if __name__ == "__main__":

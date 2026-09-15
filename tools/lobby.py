@@ -23,7 +23,7 @@ import sys
 import threading
 import time
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _entry in (ROOT, os.path.join(ROOT, "protocol"), os.path.join(ROOT, "client_mod", "scripts")):
     if _entry not in sys.path:
         sys.path.insert(0, _entry)

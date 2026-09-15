@@ -28,7 +28,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -728,7 +728,37 @@ class LauncherApp(object):
         _save_settings(self.settings)
 
 
+def _run_selftest(dest):
+    """Headless frozen-bundle self-test (SIM4_MP_SELFTEST=<dir>).
+
+    Installs the mod into ``<dest>/Mods`` exactly like the "Install mod"
+    button would, then writes ``<dest>/result.json``. Lets tests drive the
+    one-file .exe without a display or clicks.
+    """
+    result = {"root": ROOT, "meipass": getattr(sys, "_MEIPASS", None)}
+    try:
+        os.makedirs(dest, exist_ok=True)
+        if os.path.join(ROOT, "client_mod") not in sys.path:
+            sys.path.insert(0, os.path.join(ROOT, "client_mod"))
+        import build_script_mod
+        result["mod_file"] = os.path.abspath(build_script_mod.__file__)
+        result["project_root"] = str(build_script_mod.PROJECT_ROOT)
+        mods = os.path.join(dest, "Mods")
+        build_script_mod.cmd_dev(mods)
+        scripts = os.path.join(mods, "Sims4Multiplayer", "Scripts")
+        result["ok"] = os.path.isdir(scripts) and bool(os.listdir(scripts))
+        result["scripts"] = scripts
+    except Exception as exc:  # noqa: BLE001
+        result["error"] = "%s: %s" % (type(exc).__name__, exc)
+    with open(os.path.join(dest, "result.json"), "w", encoding="utf-8") as handle:
+        json.dump(result, handle, indent=2, default=str)
+
+
 def main():
+    selftest = os.environ.get("SIM4_MP_SELFTEST")
+    if selftest:
+        _run_selftest(selftest)
+        return
     root = tk.Tk()
     LauncherApp(root)
     root.mainloop()
