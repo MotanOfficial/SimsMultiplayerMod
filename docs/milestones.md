@@ -652,6 +652,44 @@ on that sim, so it does not fight the owner between world syncs.
   and that `mp.diag` reports the autonomy API path in use. On a single
   instance, `mp.autonomy` toggling is observable in the console only.
 
+## M15 - Launcher + lobby + one-file .exe (DONE)
+
+Turns multiplayer into a "give it to a friend" experience: no Python, no
+registry edits, no folder hunting. A single windowed executable detects the
+game on each PC, installs the mod automatically, and runs a two-tab
+host/join lobby where the host shares a save and both sides get a Start
+button that launches the game already configured to auto-connect.
+
+- [x] `tools/game_paths.py` (pure, testable): detects the TS4 user folder
+  (`Documents/Electronic Arts/The Sims 4`, OneDrive-redirected Documents
+  handled), Mods/saves subfolders, and the install exe (`TS4_x64.exe`) via
+  the Maxis `Install Dir` registry key, EA-app/Origin/Steam default paths,
+  with test-injectable roots.
+- [x] `tools/lobby.py` (pure, testable): `find_lan_ip()`, `ServerHandle`
+  (runs the real `MPServer` in its own thread with a status.json callback),
+  `push_save_file()` (host pushes a slot + waits for the reached-count ack),
+  `receive_save_file()` (joiner pumps until the save lands on disk). All
+  reuse the existing protocol/connectivity/save-transfer code paths.
+- [x] `tools/launcher.py` tkinter GUI (stdlib only): path auto-detection +
+  Browse, mod auto-install into the detected Mods folder, Host tab (lobby
+  start/stop, save picker, share->ack->Start game gating), Join tab (enter
+  host IP -> receive save -> Start game). On Start it writes
+  `Sims4Multiplayer.json` (auto_connect) into the Mods folder and launches
+  the detected exe (Steam `steam://rungameid/1222671` fallback).
+- [x] `tools/build_app.py` PyInstaller wrapper (`--onefile --windowed`) that
+  bundles the launcher + lobby + server + protocol + mod sources so the
+  target machine needs nothing installed; `Run Launcher.bat` written next to
+  the exe. Build: `python tools/build_app.py`.
+- [x] Tests: `tests/test_game_paths.py` (doc/mods/saves/exe detection +
+  registry), `tests/test_lobby.py` (real-server end-to-end: push to a
+  connected player reaches 1, solo reaches 0, join receives the save into
+  the intended folder, server start/stop/restart and port-conflict guard).
+  Full suite: `python tests/run_tests.py` -> **262 tests OK**.
+- [ ] Manual two-PC handoff test: run the built exe on both machines, host
+  opens a lobby + shares a save, the other joins + receives, both Start
+  game and land in the shared household. Requires two PCs on the same LAN
+  (Windows firewall must allow the launcher/server on the host).
+
 ## Out of scope until explicit decision
 
 - Full DNA/lot/room package sharing (needs a large asset protocol and

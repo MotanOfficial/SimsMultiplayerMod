@@ -1,4 +1,4 @@
-# Sims 4 Multiplayer Mod (M14)
+# Sims 4 Multiplayer Mod (M15)
 
 An independent, client/server multiplayer layer for **The Sims 4**. The mod
 runs inside each game instance; a standalone Python server coordinates the
@@ -60,6 +60,12 @@ SimSync, or any non-stdlib Python package.
 > local autonomy (so a peer-driven sim is not jostled between sync ticks),
 > reconciled on every world/ownership change and toggleable at runtime with
 > `mp.autonomy on|off` / `autonomy_suppression` config (default on).
+> M15 = launcher + lobby + one-file .exe: `tools/launcher.py` auto-detects
+> the game install/Mods/saves folders on each PC, installs the mod, and runs
+> a host/join lobby (embedded server, save share -> save sync -> Start game
+> that launches the game already configured to auto-connect). `tools/build_app.py`
+> packages it into a single windowed .exe with PyInstaller. See
+> `docs/milestones.md`.
 
 ## Layout
 
@@ -67,6 +73,7 @@ SimSync, or any non-stdlib Python package.
 protocol/simmp/   shared wire protocol (canonical copy)
 server/           standalone asyncio multiplayer server
 client_mod/       Sims 4 script mod (the in-game client)
+tools/            launcher GUI, lobby, game-path detection, build script, dev console
 tests/            stdlib unittest suite
 docs/             architecture, protocol, milestones, research, testing
 ```
@@ -181,17 +188,29 @@ the game was restarted after installing the mod.
 ## Tests
 
 ```bash
-python tests/run_tests.py      # 246 tests, stdlib only
+python tests/run_tests.py      # 262 tests, stdlib only
 python -m pytest -q            # optional
 ```
 
 See `docs/m1-testing.md` for the full matrix and live smoke steps.
 
+## Launcher (give it to another PC)
+
+```bash
+python tools/launcher.py       # GUI: host or join a lobby
+python tools/build_app.py      # build dist/Sims4MultiplayerLauncher.exe (PyInstaller)
+```
+
+The launcher auto-detects (or lets you browse to) the game, Mods and saves
+folders, installs the mod, runs an embedded lobby server, shares the chosen
+save to joiners, and starts both games already set to auto-connect. Packaged
+as a .exe the other PC needs nothing installed.
+
 ## Documentation
 
 - `docs/architecture.md` - layering, threading model, message flow
 - `docs/protocol.md` - wire format (v4), message catalogue, reliability
-- `docs/milestones.md` - roadmap (M1-M13 done)
+- `docs/milestones.md` - roadmap (M1-M15 done)
 - `docs/sims4-research.md` - confirmed public modding facts (packaging, alarms, commands, UI)
 - `docs/m1-testing.md` - unit + live verification
 

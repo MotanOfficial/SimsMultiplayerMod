@@ -300,7 +300,7 @@ class DevConsole(tk.Tk):
                    command=self._run_tests).pack(side=tk.LEFT)
         ttk.Button(bar, text="Build + deploy", style="Tool.TButton",
                    command=self._build_deploy).pack(side=tk.LEFT, padx=8)
-        ttk.Label(page, text="Tests: runs the full suite (246 tests) with the real protocol code.\n"
+        ttk.Label(page, text="Tests: runs the full suite (262 tests) with the real protocol code.\n"
                              "Build + deploy: packages the mod to Sims4Multiplayer.ts4script and\n"
                              "drops the dev build into the Mods folder.", style="Dim.TLabel",
                   justify="left").pack(anchor="w", pady=(16, 0))
