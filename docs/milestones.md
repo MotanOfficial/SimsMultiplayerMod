@@ -684,7 +684,7 @@ button that launches the game already configured to auto-connect.
   registry), `tests/test_lobby.py` (real-server end-to-end: push to a
   connected player reaches 1, solo reaches 0, join receives the save into
   the intended folder, server start/stop/restart and port-conflict guard).
-  Full suite: `python tests/run_tests.py` -> **262 tests OK**.
+  Full suite: `python tests/run_tests.py` -> **266 tests OK**.
 - [ ] Manual two-PC handoff test: run the built exe on both machines, host
   opens a lobby + shares a save, the other joins + receives, both Start
   game and land in the shared household. Requires two PCs on the same LAN

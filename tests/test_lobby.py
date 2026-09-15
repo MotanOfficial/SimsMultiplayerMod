@@ -29,6 +29,24 @@ class LanIpTests(unittest.TestCase):
             parts = ip.split(".")
             self.assertEqual(len(parts), 4)
 
+    def test_all_lan_ips_are_unique_valid_ipv4(self):
+        ips = lobby.all_lan_ips()
+        self.assertIsInstance(ips, list)
+        self.assertEqual(len(ips), len(set(ips)), "duplicated addresses")
+        for ip in ips:
+            parts = ip.split(".")
+            self.assertEqual(len(parts), 4)
+            for part in parts:
+                self.assertTrue(part.isdigit() and 0 <= int(part) <= 255)
+        # the default-route address must be included when it is known
+        default = lobby.find_lan_ip()
+        if default:
+            self.assertIn(default, ips)
+
+    def test_all_lan_ips_no_loopback(self):
+        for ip in lobby.all_lan_ips():
+            self.assertFalse(ip.startswith("127."))
+
 
 class ServerHandleTests(unittest.TestCase):
     def test_start_stop_and_status_callback(self):

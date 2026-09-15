@@ -57,6 +57,68 @@ def find_lan_ip():
     return ""
 
 
+def all_lan_ips():
+    """Return all local non-loopback IPv4s across every adapter.
+
+    Unlike ``find_lan_ip`` (which only sees the default route's NIC), this
+    also picks up virtual/VPN adapters (Radmin VPN, Hamachi, Tailscale, ...)
+    so the host can advertise the right address to remote players. Default
+    route IP first when known. '' entries filtered out; never raises.
+    """
+    found = []
+    seen = set()
+    default = find_lan_ip()
+
+    def add(ip):
+        ip = (ip or "").strip()
+        if not ip:
+            return
+        if ip in seen:
+            return
+        try:
+            socket.inet_aton(ip)
+        except OSError:
+            return
+        if ip.startswith("127.") or ip.startswith("0."):
+            return
+        seen.add(ip)
+        found.append(ip)
+
+    add(default)
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            add(info[4][0])
+    except Exception:
+        pass
+    try:
+        import winreg
+    except ImportError:
+        return found
+    try:
+        base = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces",
+        )
+        try:
+            count = winreg.QueryInfoKey(base)[0]
+            for i in range(count):
+                with winreg.OpenKey(base, winreg.EnumKey(base, i)) as sub:
+                    for value_name in ("IPAddress", "DhcpIPAddress"):
+                        try:
+                            value = winreg.QueryValueEx(sub, value_name)[0]
+                        except OSError:
+                            continue
+                        if isinstance(value, str):
+                            value = [value]
+                        for ip in value:
+                            add(ip)
+        finally:
+            winreg.CloseKey(base)
+    except OSError:
+        pass
+    return found
+
+
 class ServerHandle:
     """Run an in-process MPServer on its own thread.
 

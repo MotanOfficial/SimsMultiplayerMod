@@ -188,7 +188,7 @@ the game was restarted after installing the mod.
 ## Tests
 
 ```bash
-python tests/run_tests.py      # 262 tests, stdlib only
+python tests/run_tests.py      # 266 tests, stdlib only
 python -m pytest -q            # optional
 ```
 
@@ -204,7 +204,9 @@ python tools/build_app.py      # build dist/Sims4MultiplayerLauncher.exe (PyInst
 The launcher auto-detects (or lets you browse to) the game, Mods and saves
 folders, installs the mod, runs an embedded lobby server, shares the chosen
 save to joiners, and starts both games already set to auto-connect. Packaged
-as a .exe the other PC needs nothing installed.
+as a .exe the other PC needs nothing installed. Host IP is a dropdown of all
+local adapters, so LAN VPNs (Radmin VPN, Hamachi, Tailscale) work: the host
+picks its VPN IP and the joiner enters that address.
 
 ## Documentation
 

@@ -250,7 +250,9 @@ class LauncherApp(object):
                    insertbackground=FG, relief="flat", width=8, buttonbackground=PANEL).pack(side="left")
         tk.Label(row, text="Your LAN IP", bg=PANEL, fg=MUTED, width=12, anchor="w").pack(side="left", padx=(14, 0))
         self.var_lan_ip = tk.StringVar(value=lobby.find_lan_ip() or "?")
-        tk.Label(row, textvariable=self.var_lan_ip, bg=PANEL, fg=ACCENT, font=FONT_MONO).pack(side="left")
+        self.lan_ip_combo = ttk.Combobox(row, textvariable=self.var_lan_ip, font=FONT_MONO, width=18)
+        self.lan_ip_combo.pack(side="left")
+        self.lan_ip_combo["values"] = lobby.all_lan_ips() or ["?"]
         tk.Button(row, text="Copy", command=self._copy_ip, bg=PANEL, fg=ACCENT, relief="flat",
                   activebackground=PANEL, activeforeground=ACCENT_HOVER).pack(side="left", padx=(4, 0))
 
@@ -408,7 +410,7 @@ class LauncherApp(object):
                 self._post(lambda: self.setup_status.config(
                     text="Mod installed into %s" % os.path.join(mods, "Sims4Multiplayer"), fg=GREEN))
             except Exception as exc:  # noqa: BLE001
-                self._post(lambda: self.setup_status.config(text="Install failed: %s" % exc, fg=RED))
+                self._post(lambda e=exc: self.setup_status.config(text="Install failed: %s" % e, fg=RED))
         threading.Thread(target=work, daemon=True).start()
         self.setup_status.config(text="Installing...", fg=MUTED)
 
@@ -554,7 +556,7 @@ class LauncherApp(object):
                 ok, reached = lobby.push_save_file(path, host, port, name=name, timeout=60.0)
                 self._post(lambda: self._on_share_done(ok, reached))
             except Exception as exc:  # noqa: BLE001
-                self._post(lambda: self._on_share_done(False, 0, exc))
+                self._post(lambda e=exc: self._on_share_done(False, 0, e))
         threading.Thread(target=work, daemon=True).start()
 
     def _on_share_done(self, ok, reached, exc=None):
@@ -601,7 +603,7 @@ class LauncherApp(object):
                 slot, path = lobby.receive_save_file(host, port, name=name, timeout=120.0)
                 self._post(lambda: self._on_join_done(slot, path))
             except Exception as exc:  # noqa: BLE001
-                self._post(lambda: self._on_join_done(None, None, exc))
+                self._post(lambda e=exc: self._on_join_done(None, None, e))
         self.join_thread = threading.Thread(target=work, daemon=True)
         self.join_thread.start()
 
