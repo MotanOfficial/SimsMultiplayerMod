@@ -76,6 +76,8 @@ class MultiplayerClient:
         self._gate_open_since = 0.0
         self._clock_echo_window = 2.0
         self._clock_apply_enabled = True
+        self._autonomy_reconciler = None
+        self.autonomy_suppression = True
 
     def set_presence_sampler(self, sampler):
         """sampler() -> (zone_id, lot_id) or None. Called on the game thread."""
@@ -98,6 +100,12 @@ class MultiplayerClient:
         """applier(entries) -> int. Called on the game thread after remote
         interaction state changes; receives remote-owned entries only."""
         self._interaction_applier = applier
+
+    def set_autonomy_reconciler(self, reconciler):
+        """reconciler(remote_owner_keys, my_player_id, my_zone_id) -> (s,r,sk).
+        Called on the game thread after ownership changes to toggle per-sim
+        autonomy. Set to None to disable."""
+        self._autonomy_reconciler = reconciler
 
     def _log(self, label, line):
         self._notify("[MP][%s] %s" % (label, line))
@@ -718,10 +726,12 @@ class MultiplayerClient:
             if payload.get("owner") is None:
                 self._claim_denied_until.pop(payload.get("key"), None)
             self._log("SYNC", "Object %r owner -> %s" % (payload["key"], payload.get("owner")))
+            self._reconcile_autonomy()
         elif message_type == "OBJECT_CLAIM_ACK":
             self.session.apply_object_claim_ack(payload)
             self._claimed_in_flight.discard(payload.get("key"))
             self._log("SYNC", "Ownership ack for %r: owner=%s" % (payload["key"], payload.get("owner")))
+            self._reconcile_autonomy()
         elif message_type == "INTERACTION_STATE":
             self.session.apply_interaction_state(payload)
             self._log("SYNC", "Interaction state for room %s: %s active" % (
@@ -959,6 +969,8 @@ class MultiplayerClient:
             return
         mine = self.session.player_id
         entries = []
+        remote_owner_keys = set()
+        zone_id = self.zone_ready_id
         for key in self.session.world.keys():
             mirror = self.session.world.get(key)
             if mirror is None:
@@ -967,10 +979,40 @@ class MultiplayerClient:
             if owner is None or owner == mine:
                 continue
             entries.append({"key": key, "fields": dict(mirror.fields)})
-        if not entries:
+            remote_owner_keys.add(key)
+        if entries:
+            try:
+                applier(entries)
+            except Exception:
+                pass
+        self._reconcile_autonomy(remote_owner_keys)
+
+    def _reconcile_autonomy(self, remote_owner_keys=None):
+        """Toggle local autonomy off for sims owned by other players.
+
+        Best-effort and game-thread only; never raises. Refreshes on every
+        world sync and every ownership change so a released sim regains its
+        autonomy immediately.
+        """
+        if not self.autonomy_suppression or self._autonomy_reconciler is None:
             return
+        if self.engine is None or not self.engine.connected:
+            return
+        mine = self.session.player_id
+        zone_id = self.zone_ready_id
+        remote_keys = remote_owner_keys
+        if remote_keys is None:
+            remote_keys = set()
+            for key in self.session.world.keys():
+                mirror = self.session.world.get(key)
+                if mirror is None:
+                    continue
+                owner = mirror.owner
+                if owner is None or owner == mine:
+                    continue
+                remote_keys.add(key)
         try:
-            applier(entries)
+            self._autonomy_reconciler(remote_keys, mine, zone_id)
         except Exception:
             pass
 

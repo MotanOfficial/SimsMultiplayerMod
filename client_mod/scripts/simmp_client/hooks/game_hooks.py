@@ -1156,3 +1156,85 @@ def _interaction_target_key(interaction, actor_key):
     if target_key == actor_key:
         return None
     return target_key
+
+
+def set_sim_autonomy(sim_info, enabled):
+    """Best-effort per-sim autonomy toggle.
+
+    Tries multiple known game APIs in order, swallowing errors so the mod
+    never breaks the game.  Returns True when any API call appeared to
+    succeed (best-effort: some APIs don't raise but also don't confirm).
+
+    Known candidates (from game decompilation / community docs):
+      - sim_info.set_autonomy_enabled(enabled)
+      - sim.get_autonomy_component().set_autonomy_enabled(enabled)
+      - autonomy_service disable/enable per sim
+    """
+    try:
+        sim = sim_info.get_sim_instance()
+    except Exception:
+        sim = None
+    # Candidate 1: sim_info.set_autonomy_enabled (most common)
+    try:
+        setter = getattr(sim_info, "set_autonomy_enabled", None)
+        if setter is not None:
+            setter(enabled)
+            return True
+    except Exception:
+        pass
+    # Candidate 2: autonomy component on sim instance
+    if sim is not None:
+        try:
+            comp = getattr(sim, "get_autonomy_component", None)
+            if comp is not None:
+                ac = comp()
+                if ac is not None:
+                    setter2 = getattr(ac, "set_autonomy_enabled", None)
+                    if setter2 is not None:
+                        setter2(enabled)
+                        return True
+        except Exception:
+            pass
+    # Candidate 3: sim_info.autonomy_enabled setter (attribute-based)
+    try:
+        attr = getattr(sim_info, "autonomy_enabled", None)
+        if attr is not None:
+            setattr(sim_info, "autonomy_enabled", enabled)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def reconcile_autonomy(remote_owner_keys, my_player_id, my_zone_id):
+    """Reconcile per-sim autonomy based on world ownership.
+
+    Walks the active household's instanced sims; for each sim whose
+    ``sim:<id>`` key is owned by another player in the world mirror,
+    autonomy is suppressed; for self-owned or unowned sims, autonomy is
+    restored.
+
+    Returns (suppressed, restored, skipped) counts for diagnostics.
+    ``remote_owner_keys`` is a set of ``sim:<id>`` strings that are
+    currently owned by another player.
+    """
+    suppressed = 0
+    restored = 0
+    skipped = 0
+    for sim_info, sim in _instanced_sim_infos():
+        key = _sim_key(sim_info)
+        if key is None:
+            skipped += 1
+            continue
+        should_suppress = key in remote_owner_keys
+        try:
+            if set_sim_autonomy(sim_info, not should_suppress):
+                if should_suppress:
+                    suppressed += 1
+                else:
+                    restored += 1
+            else:
+                skipped += 1
+        except Exception:
+            skipped += 1
+    return suppressed, restored, skipped

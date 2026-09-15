@@ -347,8 +347,10 @@ modules). None of it is S4MP/SimSync code.
   M10+): only **in-lot household sims are replicated**; interactions are keyed
   by the sim and executed as a best-effort affordance push (no progress/skill
   outcome replication, no object-targeted actions since objects are not
-  replicated); a remote-driven sim can still be jostled by local autonomy
-  between sync ticks (re-snapped on the next delta).
+  replicated). Autonomy suppression (M14) addresses the "remote sim jostled by
+  local autonomy between sync ticks" part: each client reconciles per-sim
+  autonomy from the world mirror, disabling it for sims owned by another
+  player and restoring it on release.
 - **Receiving side (M8)**: remote-owned sim entries are applied back into the
   game by the receive-side applier `apply_world_updates(entries)`, which
   resolves each `sim:<id>` via `services.sim_info_manager().get(sim_id)` /

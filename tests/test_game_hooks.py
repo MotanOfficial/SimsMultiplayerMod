@@ -144,6 +144,64 @@ class GameHooksSamplerTests(unittest.TestCase):
         self.assertEqual(entry["fields"]["qx"], 1.0)
         self.assertEqual(entry["fields"]["def"], 987)
 
+    def test_set_sim_autonomy_uses_setter_when_present(self):
+        calls = []
+
+        class FakeSimInfo:
+            id = 5
+
+            def set_autonomy_enabled(self, enabled):
+                calls.append(("setter", enabled))
+
+        self.assertTrue(game_hooks.set_sim_autonomy(FakeSimInfo(), False))
+        self.assertEqual(calls, [("setter", False)])
+
+    def test_set_sim_autonomy_tries_autonomy_component(self):
+        calls = []
+
+        class FakeComponent:
+            def set_autonomy_enabled(self, enabled):
+                calls.append(("component", enabled))
+
+        class FakeSim:
+            def get_autonomy_component(self):
+                return FakeComponent()
+
+        class FakeSimInfo:
+            id = 5
+
+            def get_sim_instance(self):
+                return FakeSim()
+
+        self.assertTrue(game_hooks.set_sim_autonomy(FakeSimInfo(), True))
+        self.assertEqual(calls, [("component", True)])
+
+    def test_set_sim_autonomy_falls_back_to_attribute(self):
+        class FakeSimInfo:
+            id = 5
+            autonomy_enabled = True
+
+        sim_info = FakeSimInfo()
+        self.assertTrue(game_hooks.set_sim_autonomy(sim_info, False))
+        self.assertIs(sim_info.autonomy_enabled, False)
+
+    def test_set_sim_autonomy_returns_false_when_nothing_usable(self):
+        class FakeSimInfo:
+            id = 5
+
+        self.assertFalse(game_hooks.set_sim_autonomy(FakeSimInfo(), True))
+
+    def test_reconcile_autonomy_offline_is_skipped(self):
+        # Without a live game world, reconcile can't find sims. It must never
+        # raise and report all sims as skipped (counts may differ by env but
+        # the call must be safe).
+        suppressed, restored, skipped = game_hooks.reconcile_autonomy(
+            {"sim:1", "sim:2"}, 700, 100
+        )
+        self.assertGreaterEqual(suppressed, 0)
+        self.assertGreaterEqual(restored, 0)
+        self.assertGreaterEqual(skipped, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

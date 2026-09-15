@@ -31,6 +31,7 @@ DEFAULT_CONFIG = {
     "interaction_sync": True,
     "interaction_interval": 5.0,
     "ui_dialogs": True,
+    "autonomy_suppression": True,
     "auto_reconnect": True,
     "reconnect_backoff_min": 2.0,
     "reconnect_backoff_max": 30.0,
@@ -98,6 +99,8 @@ def _coerce_and_validate(values):
 
     if "ui_dialogs" in values and not isinstance(values["ui_dialogs"], bool):
         raise ConfigError("ui_dialogs must be true or false")
+    if "autonomy_suppression" in values and not isinstance(values["autonomy_suppression"], bool):
+        raise ConfigError("autonomy_suppression must be true or false")
     if "auto_reconnect" in values and not isinstance(values["auto_reconnect"], bool):
         raise ConfigError("auto_reconnect must be true or false")
     if "reconnect_backoff_min" in values:

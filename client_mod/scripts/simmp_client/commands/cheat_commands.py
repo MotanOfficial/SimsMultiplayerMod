@@ -105,6 +105,7 @@ def install_presence_sampler():
     _client.set_world_applier(game_hooks.apply_world_updates)
     _client.set_interaction_sampler(game_hooks.sample_interactions)
     _client.set_interaction_applier(game_hooks.apply_interactions)
+    _client.set_autonomy_reconciler(game_hooks.reconcile_autonomy)
     game_hooks.set_interaction_logger(_console_output)
     _client.travel_controller = _travel_controller
 
@@ -455,7 +456,28 @@ def _mp_auto_reconnect(setting="", _connection=None):
         _console_output("[MP][NET] auto-reconnect: %s" % ("on" if _client.auto_reconnect else "off"), _connection)
 
 
+@sims4.commands.Command("mp.autonomy", command_type=sims4.commands.CommandType.Cheat)
+def _mp_autonomy(setting="", _connection=None):
+    if setting in ("on", "1", "true", "yes"):
+        _client.autonomy_suppression = True
+        _console_output("[MP][AUTO] autonomy suppression: on", _connection)
+    elif setting in ("off", "0", "false", "no"):
+        _client.autonomy_suppression = False
+        _console_output("[MP][AUTO] autonomy suppression: off", _connection)
+    else:
+        _console_output("[MP][AUTO] autonomy suppression: %s" % ("on" if _client.autonomy_suppression else "off"), _connection)
+    if _client.autonomy_suppression:
+        _client._reconcile_autonomy()
+
+
 @sims4.commands.Command("mp.ui_test", command_type=sims4.commands.CommandType.Cheat)
 def _mp_ui_test(text="hello from multiplayer", _connection=None):
     shown = _ui.toast(text)
-    _console_output("[MP][UI] test toast %sshown (in-game only)" % ("" if shown else "not "), _connection)
+    reason = ""
+    if not shown:
+        last_error = mp_ui.show_notification.last_error
+        reason = " (last error: %r)" % (last_error,) if last_error else ""
+    _console_output(
+        "[MP][UI] test toast %sshown%s (in-game only)" % ("" if shown else "not ", reason),
+        _connection,
+    )

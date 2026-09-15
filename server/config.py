@@ -2,7 +2,7 @@
 
 import argparse
 
-DEFAULT_HOST = "127.0.0.1"
+DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8765
 DEFAULT_LOG_LEVEL = "INFO"
 

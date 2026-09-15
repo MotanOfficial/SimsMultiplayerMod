@@ -1,4 +1,4 @@
-# Sims 4 Multiplayer Mod (M13)
+# Sims 4 Multiplayer Mod (M14)
 
 An independent, client/server multiplayer layer for **The Sims 4**. The mod
 runs inside each game instance; a standalone Python server coordinates the
@@ -56,6 +56,10 @@ SimSync, or any non-stdlib Python package.
 > releases the departed players holdings in the old zone and resyncs the new
 > one. Protocol stays v4 (`zone_id` is an optional field on the world/claim/
 > interaction messages).
+> M14 = autonomy suppression: sims owned by another player stop running
+> local autonomy (so a peer-driven sim is not jostled between sync ticks),
+> reconciled on every world/ownership change and toggleable at runtime with
+> `mp.autonomy on|off` / `autonomy_suppression` config (default on).
 
 ## Layout
 
@@ -177,7 +181,7 @@ the game was restarted after installing the mod.
 ## Tests
 
 ```bash
-python tests/run_tests.py      # 239 tests, stdlib only
+python tests/run_tests.py      # 246 tests, stdlib only
 python -m pytest -q            # optional
 ```
 

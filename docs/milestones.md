@@ -616,6 +616,42 @@ same-zone case.
   zone-scoping. What zone-scoping delivers is isolation (no cross-zone
   smearing) and a clean solo-travel/rejoin.
 
+## M14 - Autonomy suppression for peer-driven sims (DONE)
+
+Fixes the M8 accepted limitation: "a remote-driven sim can still be jostled
+by local autonomy between sync ticks (re-snapped on the next delta)". When
+one game is driving a sim the *other* game should not run its own autonomy
+on that sim, so it does not fight the owner between world syncs.
+
+- [x] Config flag `autonomy_suppression` (default on): pure
+  `_coerce_and_validate` bool, wired through `sims4_plugin._apply_config`
+  into `MultiplayerClient.autonomy_suppression`.
+- [x] Client plumbing (`connectivity.py`): `set_autonomy_reconciler` hook +
+  `_reconcile_autonomy(keys)` which compiles the set of `sim:<id>` keys whose
+  mirror owner is another player (from the world mirror) and hands them to
+  the reconciler. Runs after every `WORLD_STATE` / `WORLD_DELTA` and every
+  ownership change (`OBJECT_OWNERSHIP`, `OBJECT_CLAIM_ACK`), so a released
+  sim regains autonomy immediately on the release broadcast.
+- [x] Game hook (`game_hooks.py`): `reconcile_autonomy(remote_owner_keys,
+  my_player_id, my_zone_id)` walks the active household's instanced sims and
+  toggles per-sim autonomy via `set_sim_autonomy(sim_info, enabled)`, a
+  best-effort try-in-order helper: `sim_info.set_autonomy_enabled()`, then
+  the autonomy component's `set_autonomy_enabled()`, then an
+  `autonomy_enabled` attribute setter. Returns True on the first API that
+  exists; never raises. Returns `(suppressed, restored, skipped)` for
+  diagnostics.
+- [x] Command `mp.autonomy on|off` toggles suppression live and immediately
+  re-runs a reconcile; no-arg prints current state.
+- [x] Tests: offline `test_game_hooks.py` (each API candidate + safe offline
+  reconcile), `test_config.py` (flag round-trip), full client flow
+  `test_autonomy_reconcile_receives_remote_owner_keys` (remote claim reaches
+  reconciler, release clears it, suppression-off never fires). Full suite:
+  `python tests/run_tests.py` -> **246 tests OK**.
+- [ ] In-game verification (needs two game instances / a peer): confirm a
+  peer-owned sim stops generating its own autonomy while the peer drives it,
+  and that `mp.diag` reports the autonomy API path in use. On a single
+  instance, `mp.autonomy` toggling is observable in the console only.
+
 ## Out of scope until explicit decision
 
 - Full DNA/lot/room package sharing (needs a large asset protocol and

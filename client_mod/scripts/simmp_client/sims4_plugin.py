@@ -22,6 +22,7 @@ def _apply_config(config):
     client.world_interval = config["world_interval"]
     client.interaction_sync = config["interaction_sync"]
     client.interaction_interval = config["interaction_interval"]
+    client.autonomy_suppression = config["autonomy_suppression"]
     cheat_commands.configure_ui(config["ui_dialogs"])
     client.auto_reconnect = config["auto_reconnect"]
     client.reconnect_backoff_min = config["reconnect_backoff_min"]

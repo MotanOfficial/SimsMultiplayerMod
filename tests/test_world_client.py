@@ -185,7 +185,7 @@ class WorldClientTests(unittest.TestCase):
         self.run_flow(_with_server(flow))
 
 
-def test_remote_world_entries_reach_applier(self):
+    def test_remote_world_entries_reach_applier(self):
         """The world applier gets remote-owned entries, never our own."""
         async def flow(server, port):
             alice_calls = []
@@ -201,10 +201,7 @@ def test_remote_world_entries_reach_applier(self):
                 self.assertTrue(await self._connected(bob))
 
                 alice_pid = alice.session.player_id
-                bob_pid = bob.session.player_id
 
-                # Alice claims and updates her sim; Bob's applier must receive
-                # the remote entry with Alice as owner.
                 self.assertTrue(alice.claim_object("sim:77"))
                 self.assertTrue(await _wait_until(
                     lambda: (alice.process_incoming() or True)
@@ -223,17 +220,76 @@ def test_remote_world_entries_reach_applier(self):
                     timeout=5.0,
                 ), "Bob's applier never saw the remote sim entry")
 
-                # Bob's call recorded the owning player.
                 saw = next(call for call in bob_calls
                            if any(entry["key"] == "sim:77" for entry in call))
                 entry = next(e for e in saw if e["key"] == "sim:77")
                 self.assertEqual(entry["fields"]["x"], 5.0)
 
-                # Alice's own claim/update never reached her applier.
                 self.assertFalse(
                     any(any(e["key"] == "sim:77" for e in call) for call in alice_calls)
                 )
             finally:
+                alice.disconnect()
+                bob.disconnect()
+
+        self.run_flow(_with_server(flow))
+
+    def test_autonomy_reconcile_receives_remote_owner_keys(self):
+        """The autonomy reconciler is called with correct remote-owner keys."""
+        async def flow(server, port):
+            reconcile_calls = []
+            alice = MultiplayerClient(client_name="Alice")
+            bob = MultiplayerClient(client_name="Bob")
+            bob.set_autonomy_reconciler(
+                lambda keys, pid, zone: reconcile_calls.append(
+                    (frozenset(keys), pid, zone)
+                )
+            )
+            try:
+                self.assertTrue(alice.connect("127.0.0.1", port))
+                self.assertTrue(bob.connect("127.0.0.1", port))
+                self.assertTrue(await self._connected(alice))
+                self.assertTrue(await self._connected(bob))
+
+                alice_pid = alice.session.player_id
+
+                self.assertTrue(alice.claim_object("sim:55"))
+                self.assertTrue(await _wait_until(
+                    lambda: (alice.process_incoming() or True)
+                    and alice.session.world.get("sim:55") is not None
+                    and alice.session.world.get("sim:55").owner == alice_pid,
+                    timeout=5.0,
+                ))
+                self.assertTrue(alice.update_object("sim:55", {"x": 1.0}))
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and any(call[0] == frozenset({"sim:55"}) for call in reconcile_calls),
+                    timeout=5.0,
+                ), "Bob's reconciler never saw sim:55 in remote_owner_keys")
+
+                reconcile_calls.clear()
+                self.assertTrue(alice.release_object("sim:55"))
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and any(call[0] == frozenset() for call in reconcile_calls),
+                    timeout=5.0,
+                ), "Bob's reconciler never cleared after ownership release")
+
+                reconcile_calls.clear()
+                bob.autonomy_suppression = False
+                self.assertTrue(alice.claim_object("sim:55"))
+                self.assertTrue(await _wait_until(
+                    lambda: (alice.process_incoming() or True)
+                    and alice.session.world.get("sim:55") is not None,
+                    timeout=5.0,
+                ))
+                self.assertTrue(alice.update_object("sim:55", {"x": 2.0}))
+                for _ in range(10):
+                    bob.process_incoming()
+                    time.sleep(0.05)
+                self.assertFalse(reconcile_calls)
+            finally:
+                bob.autonomy_suppression = True
                 alice.disconnect()
                 bob.disconnect()
 

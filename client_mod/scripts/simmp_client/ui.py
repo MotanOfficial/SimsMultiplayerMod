@@ -32,6 +32,17 @@ def _dialog_service():
         return None
 
 
+def _active_sim():
+    try:
+        import services
+        client = services.client_manager().get_first_client()
+        if client is None:
+            return None
+        return client.active_sim
+    except Exception:
+        return None
+
+
 def _localized(text):
     try:
         from sims4.localization import LocalizationHelperTuning
@@ -41,24 +52,38 @@ def _localized(text):
         return text
 
 
+def _localized_fn(text):
+    try:
+        from sims4.localization import LocalizationHelperTuning
+        return lambda **_: LocalizationHelperTuning.get_raw_text(text)
+    except Exception:
+        return lambda **_: text
+
+
 def show_notification(text, title=None):
     """Show a toast notification. Returns True when a dialog was shown."""
-    service = _dialog_service()
-    if service is None:
+    sim = _active_sim()
+    if sim is None:
         return False
     try:
-        from ui.ui_dialog import UiDialogNotification
+        from ui.ui_dialog_notification import UiDialogNotification
 
-        dialog = service.create_dialog(
-            UiDialogNotification,
-            None,
-            text=_localized(text),
-            title=_localized(title or GAME_TITLE),
+        dialog = UiDialogNotification.TunableFactory().default(
+            sim,
+            text=_localized_fn(text),
+            title=_localized_fn(title or GAME_TITLE),
         )
-        dialog.show_dialog()
+        dialog.show_dialog(icon_override=None)
         return True
-    except Exception:
+    except Exception as exc:
+        try:
+            show_notification.last_error = exc
+        except Exception:
+            pass
         return False
+
+
+show_notification.last_error = None
 
 
 def show_travel_invite(request_id, zone_id, requester_name, on_decision):
@@ -68,22 +93,21 @@ def show_travel_invite(request_id, zone_id, requester_name, on_decision):
     (never from the engine thread: the game always runs dialogs on the game
     thread). Returns True when a dialog was shown.
     """
-    service = _dialog_service()
-    if service is None:
+    sim = _active_sim()
+    if sim is None:
         return False
     try:
         from ui.ui_dialog import UiDialogOkCancel, UiDialogResponse
 
-        dialog = service.create_dialog(
-            UiDialogOkCancel,
-            None,
-            text=_localized(
+        dialog = UiDialogOkCancel.TunableFactory().default(
+            sim,
+            text=_localized_fn(
                 "Player %s wants to travel with you to zone %s. Join?"
                 % (requester_name, zone_id)
             ),
-            title=_localized(GAME_TITLE),
-            ok_text=_localized("Travel"),
-            cancel_text=_localized("Decline"),
+            title=_localized_fn(GAME_TITLE),
+            ok_text=_localized_fn("Travel"),
+            cancel_text=_localized_fn("Decline"),
         )
         dialog.add_listener(_make_invite_listener(request_id, on_decision))
         dialog.show_dialog()
