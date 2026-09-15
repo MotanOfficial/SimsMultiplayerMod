@@ -49,6 +49,11 @@ class Room:
             "by_player": None,
             "ticks": None,
         }
+        # Household simoleons.  The server is *not* authoritative for
+        # purchases (which are best-effort push from the buyer), but
+        # stores the last-reported balance so a late joiner or a peer
+        # that falls behind sees a converged number.
+        self.funds = {"balance": 0, "by_player": None}
 
     def as_dict(self):
         return {
@@ -268,6 +273,25 @@ class Session:
         obj.fields.update(fields)
         return ("ok", changed)
 
+    def remove_world_object(self, room_id, key, zone_id=None):
+        """Remove an object from the world catalog and return it (or None)."""
+        partition = self._zone_key(room_id, zone_id)
+        objects = self._world_by_zone.get(partition, {})
+        return objects.pop(key, None)
+
+    def set_room_funds(self, room_id, balance, player_id):
+        """Store the household balance for a room (echo-style convergence)."""
+        room = self._rooms.get(room_id)
+        if room is None:
+            return
+        room.funds = {"balance": int(balance), "by_player": player_id}
+
+    def get_room_funds(self, room_id):
+        room = self._rooms.get(room_id)
+        if room is None:
+            return {"balance": 0, "by_player": None}
+        return dict(room.funds)
+
     def get_interaction(self, room_id, key, zone_id=None):
         return self._interactions_by_zone.get(self._zone_key(room_id, zone_id), {}).get(key)
 
@@ -464,6 +488,20 @@ player_id).
         if player is None:
             return False
         player.clock_ready = True
+        return True
+
+    def set_clock_unready(self, player_id):
+        """Mark a single player as not ready (left the playable zone).
+
+        Unlike `clear_room_clock_ready` (group travel), only this player drops
+        out. The gate stays closed until they send TIME_READY again, so a
+        player in CAS/a menu pauses the room without forcing everyone else to
+        re-ready.
+        """
+        player = self._players.get(player_id)
+        if player is None:
+            return False
+        player.clock_ready = False
         return True
 
     def clear_room_clock_ready(self, room_id):

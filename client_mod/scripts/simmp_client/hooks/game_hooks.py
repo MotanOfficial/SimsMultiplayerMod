@@ -724,7 +724,13 @@ def apply_world_updates(entries):
         surface = SurfaceIdentifier(zone_id, 0, SurfaceType.SURFACETYPE_WORLD)
         applied = 0
         for entry in entries:
-            sim_id = _sim_id_from_key(entry.get("key"))
+            key = entry.get("key")
+            if key is None:
+                continue
+            if key.startswith("obj:"):
+                applied += _apply_object_entry(key, entry.get("fields") or {})
+                continue
+            sim_id = _sim_id_from_key(key)
             if sim_id is None:
                 continue
             fields = entry.get("fields") or {}
@@ -1076,6 +1082,277 @@ def sample_interactions():
                 entry["target"] = target_key
             entries.append(entry)
     return entries
+
+
+def sample_household_funds():
+    """Best-effort household simoleon balance (int) or None offline/unknown."""
+    try:
+        import services
+
+        household = services.active_household()
+        if household is None:
+            return None
+        funds = getattr(household, "funds", None)
+        if funds is None:
+            return None
+        amount = getattr(funds, "amount", None)
+        if amount is None:
+            return None
+        return int(amount)
+    except Exception:
+        return None
+
+
+def set_household_funds(balance):
+    """Set the household balance to an absolute amount (best-effort).
+
+    Uses `HouseholdFunds.add_money/remove_money` deltas, which are safe to
+    call outside a UI flow and converge the local number to `balance`.
+    Returns the applied balance on success, else None.
+    """
+    try:
+        import services
+
+        household = services.active_household()
+        if household is None:
+            return None
+        funds = getattr(household, "funds", None)
+        if funds is None:
+            return None
+        current = getattr(funds, "amount", None)
+        if current is None:
+            return None
+        target = int(balance)
+        delta = target - int(current)
+        if delta > 0:
+            add = getattr(funds, "add_money", None)
+            if add is None:
+                return None
+            add(delta)
+        elif delta < 0:
+            remove = getattr(funds, "remove_money", None)
+            if remove is None:
+                return None
+            remove(-delta)
+        return target
+    except Exception:
+        return None
+
+
+def _object_manager_iterate():
+    """Best-effort iteration over instanced lot/zone objects (not sims).
+
+    Tries the common `services.object_manager()` surfaces and degrades to an
+    empty list without raising, so the sampler never breaks on API drift.
+    """
+    try:
+        import services
+
+        manager = services.object_manager()
+        if manager is None:
+            return []
+        get_all = getattr(manager, "get_all", None)
+        if callable(get_all):
+            try:
+                return list(get_all())
+            except Exception:
+                pass
+        valid = getattr(manager, "valid_objects", None)
+        if callable(valid):
+            try:
+                return list(valid())
+            except Exception:
+                pass
+        objects = getattr(manager, "objects", None)
+        if objects is not None:
+            try:
+                return list(objects)
+            except Exception:
+                pass
+        stacks = getattr(manager, "stacks", None)
+        if stacks is not None:
+            try:
+                return list(stacks)
+            except Exception:
+                pass
+        return []
+    except Exception:
+        return []
+
+
+def _definition_id(obj):
+    try:
+        definition = getattr(obj, "definition", None)
+        if definition is None:
+            return None
+        return int(getattr(definition, "id", 0) or 0)
+    except Exception:
+        return None
+
+
+def _object_key(obj, transform):
+    """Stable cross-machine key for a lot object.
+
+    Objects have no persistent id (runtime ids differ per load/save), so the
+    key is derived from the definition (stable) + a coarse position grid,
+    which matches objects placed at the same spot in the shared save.
+    """
+    def_id = _definition_id(obj)
+    if def_id is None or transform is None:
+        return None
+    pos = _vec3(getattr(transform, "translation", None))
+    if pos is None:
+        return None
+    grid = "_".join(str(int(round(v * 100.0))) for v in pos)
+    return "obj:%d@%s" % (def_id, grid)
+
+
+def sample_lot_objects():
+    """Sample every instanced lot object (furniture, appliances, decor...).
+
+    Returns entries with a ``obj:<def>@<grid>`` key plus position/orientation
+    fields (and ``def``), mirroring the sim-entry shape so the shared write-back
+    path can move a peer's copy of the same object. Safe to call offline.
+    """
+    entries = []
+    for obj in _object_manager_iterate():
+        if getattr(obj, "is_sim", False):
+            continue
+        location = getattr(obj, "location", None)
+        if location is None:
+            continue
+        transform = getattr(location, "transform", None)
+        if transform is None:
+            continue
+        key = _object_key(obj, transform)
+        if key is None:
+            continue
+        pos = _vec3(getattr(transform, "translation", None))
+        if pos is None:
+            continue
+        fields = {"x": pos[0], "y": pos[1], "z": pos[2]}
+        ori = _quat(getattr(transform, "orientation", None))
+        if ori is not None:
+            fields["qw"] = ori[0]
+            fields["qx"] = ori[1]
+            fields["qy"] = ori[2]
+            fields["qz"] = ori[3]
+        def_id = _definition_id(obj)
+        if def_id is not None:
+            fields["def"] = def_id
+        entries.append({"key": key, "fields": fields})
+    return entries
+
+
+def sample_playable_world():
+    """Household sims + instanced lot objects (the full playable world)."""
+    return sample_world_objects() + sample_lot_objects()
+
+
+def _parse_object_key(key):
+    """`obj:<def>@<x>_<y>_<z>` -> (def_id, approx position) or None."""
+    if not isinstance(key, str) or not key.startswith("obj:"):
+        return None
+    try:
+        rest = key[len("obj:"):]
+        def_id, coords = rest.split("@", 1)
+        cx, cy, cz = (int(v) for v in coords.split("_"))
+        return int(def_id), (cx / 100.0, cy / 100.0, cz / 100.0)
+    except Exception:
+        return None
+
+
+def _find_object_for_key(parsed):
+    """Match a mirrored object key to a local object.
+
+    Objects share per-definition keys, and grid snapping gives fuzzylom.
+    Nearest-position match within a unit is used so a slight move does not
+    look like delete+place.
+    """
+    if parsed is None:
+        return None
+    def_id, approx = parsed
+    best, best_dist = None, 1.0
+    for obj in _object_manager_iterate():
+        if getattr(obj, "is_sim", False):
+            continue
+        if _definition_id(obj) != def_id:
+            continue
+        location = getattr(obj, "location", None)
+        if location is None:
+            continue
+        pos = _vec3(getattr(location, "transform", None))
+        if pos is None:
+            continue
+        if getattr(getattr(location, "transform", None), "orientation", None) is None:
+            pass
+        distance = (pos[0] - approx[0]) ** 2 + (pos[1] - approx[1]) ** 2 + (pos[2] - approx[2]) ** 2
+        if distance < best_dist:
+            best, best_dist = obj, distance
+    return best
+
+
+def _apply_object_entry(key, fields):
+    """Best-effort move/ease of a local lot object to a mirrored position."""
+    parsed = _parse_object_key(key)
+    if parsed is None:
+        return 0
+    obj = _find_object_for_key(parsed)
+    if obj is None:
+        return 0
+    pos = _position_from_fields(fields)
+    if pos is None:
+        return 0
+    ori = _orientation_from_fields(fields)
+    try:
+        import services
+        from sims4.math import Location, Transform, Quaternion, Vector3
+
+        zone_id = services.current_zone_id()
+        if zone_id is None:
+            return 0
+        from routing import SurfaceIdentifier, SurfaceType
+
+        surface = SurfaceIdentifier(zone_id, 0, SurfaceType.SURFACETYPE_WORLD)
+        quaternion = Quaternion(*ori) if ori is not None else Quaternion(1, 0, 0, 0)
+        obj.location = Location(Transform(Vector3(*pos), quaternion), surface)
+        return 1
+    except Exception:
+        try:
+            from sims4.math import Vector3
+            update_translation = getattr(obj, "update_translation", None)
+            if update_translation is not None:
+                update_translation(Vector3(*pos))
+                return 1
+        except Exception:
+            pass
+    return 0
+
+
+def apply_object_gone(keys):
+    """Best-effort destroy of locally-mirrored lot objects that a peer deleted.
+
+    `keys` are ``obj:<def>@<grid>`` keys. Only the nearest same-definition
+    local object is destroyed, and destroy is skipped if it is unavailable.
+    Never touches sims (sim travel is handled by the zone/travel flow).
+    """
+    destroyed = 0
+    for key in keys or []:
+        parsed = _parse_object_key(key)
+        if parsed is None:
+            continue
+        obj = _find_object_for_key(parsed)
+        if obj is None:
+            continue
+        destroy = getattr(obj, "destroy", None)
+        if not callable(destroy):
+            continue
+        try:
+            destroy()
+            destroyed += 1
+        except Exception:
+            pass
+    return destroyed
 
 
 def _interaction_label(interaction):

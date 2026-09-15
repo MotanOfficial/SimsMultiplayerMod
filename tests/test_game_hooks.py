@@ -35,6 +35,29 @@ class GameHooksSamplerTests(unittest.TestCase):
             0,
         )
 
+    def test_funds_sampler_none_offline(self):
+        self.assertIsNone(game_hooks.sample_household_funds())
+
+    def test_set_funds_noops_offline(self):
+        self.assertIsNone(game_hooks.set_household_funds(25000))
+
+    def test_lot_object_sampler_empty_offline(self):
+        self.assertEqual(game_hooks.sample_lot_objects(), [])
+        self.assertEqual(game_hooks.sample_playable_world(), [])
+
+    def test_apply_object_gone_zero_offline(self):
+        self.assertEqual(game_hooks.apply_object_gone([]), 0)
+        self.assertEqual(
+            game_hooks.apply_object_gone(["obj:9@100_200_300"]), 0
+        )
+
+    def test_object_key_helpers(self):
+        parsed = game_hooks._parse_object_key("obj:12345@-100_200_3500")
+        self.assertEqual(parsed, (12345, (-1.0, 2.0, 35.0)))
+        self.assertIsNone(game_hooks._parse_object_key("sim:42"))
+        self.assertIsNone(game_hooks._parse_object_key("obj:9@not_coords"))
+        self.assertEqual(game_hooks._parse_object_key("obj:9@1_2"), None)
+
     def test_interaction_label_and_target_helpers(self):
         class FakeSimInfo:
             id = 7

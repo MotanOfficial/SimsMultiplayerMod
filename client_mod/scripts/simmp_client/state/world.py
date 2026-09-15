@@ -106,6 +106,11 @@ class WorldMirror:
     def apply_claim_ack(self, key, owner):
         self.apply_ownership(key, owner)
 
+    def apply_removal(self, key, zone_id=None):
+        if zone_id is not None and zone_id != self.zone_id:
+            return
+        self.objects.pop(key, None)
+
     def get(self, key):
         return self.objects.get(key)
 

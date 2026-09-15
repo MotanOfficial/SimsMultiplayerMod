@@ -42,9 +42,12 @@ class Handlers:
             "OBJECT_UPDATE": self._handle_object_update,
             "INTERACTION_REQUEST": self._handle_interaction_request,
             "INTERACTION_END": self._handle_interaction_end,
+            "OBJECT_GONE": self._handle_object_gone,
             "SAVE_PUSH": self._handle_save_push,
             "SAVE_REQUEST": self._handle_save_request,
+            "FUNDS_SYNC": self._handle_funds_sync,
             "TIME_READY": self._handle_time_ready,
+            "TIME_UNREADY": self._handle_time_unready,
             "TIME_SPEED": self._handle_time_speed,
         }
         # Per-room cache of the last completed save push, so a player who
@@ -417,6 +420,93 @@ class Handlers:
                 msg.make_world_delta(room_id, seq, deltas, player_id=conn.player_id, zone_id=zone_id),
                 exclude={conn.player_id},
             )
+
+    async def _handle_object_gone(self, conn, frame):
+        """A lot object was deleted (build/buy): drop it and relay the removal.
+
+        Only the current owner (or an unclaimed object) may be removed, so a
+        peer can't delete someone else's actively-mirrored world entry. The
+        removal is broadcast to the zone so every peer deletes its local copy
+        of that object (same save, same def+position).
+        """
+        if not await self._require_registered(conn, "removing world objects"):
+            return
+        server = self._server
+        room_id = conn.room_id
+        payload = frame["payload"]
+        key = payload["key"]
+        zone_id = self._zone_of(conn, payload)
+        removed = server.session.remove_world_object(room_id, key, zone_id)
+        if removed is not None and removed.owner is not None and removed.owner != conn.player_id:
+            # Not our object to delete: restore the entry and refuse.
+            objects = server.session.get_world_object(room_id, key, zone_id)
+            if objects is None:
+                server.session.claim_object(room_id, key, removed.owner, zone_id)
+                server.session.apply_world_update(
+                    room_id, key, removed.fields, removed.owner, zone_id
+                )
+            await conn.send(
+                msg.make_error(
+                    ERR_OBJECT_LOCKED,
+                    "object %r is owned by player %s; cannot remove it" % (key, removed.owner),
+                    ref=key,
+                )
+            )
+            return
+        server.logger.info(
+            "[MP][SYNC] Object %r removed from room %s zone %s by player %s",
+            key,
+            room_id,
+            zone_id,
+            conn.player_id,
+        )
+        await server.broadcast_zone(
+            room_id,
+            zone_id,
+            msg.make_object_gone(key),
+            exclude={conn.player_id},
+        )
+
+    async def _handle_funds_sync(self, conn, frame):
+        """Echo-style household balance broadcast (including to the sender).
+
+        Every client applies the absolute balance, so whoever spent/received
+        simoleons last converges everyone onto that number.
+        """
+        if not await self._require_registered(conn, "syncing household funds"):
+            return
+        server = self._server
+        balance = frame["payload"]["balance"]
+        room_id = conn.room_id
+        server.session.set_room_funds(room_id, balance, conn.player_id)
+        server.logger.info(
+            "[MP][FUNDS] Player %s set room %s balance to %s simoleons",
+            conn.player_id,
+            room_id,
+            balance,
+        )
+        await server.broadcast_room(
+            room_id,
+            msg.make_funds_sync(balance, player_id=conn.player_id),
+        )
+
+    async def _handle_time_unready(self, conn, frame):
+        """A player is no longer in a playable zone (CAS, manage worlds, menu).
+
+        The room re-gates PAUSED so nobody plays ahead while they are away;
+        they send TIME_READY again when they are back in a running zone.
+        """
+        if not await self._require_registered(conn, "reporting unready"):
+            return
+        server = self._server
+        room_id = conn.room_id
+        server.session.set_clock_unready(conn.player_id)
+        server.logger.info(
+            "[MP][SYNC] Player %s unready (left playable zone); room %s re-gating",
+            conn.player_id,
+            room_id,
+        )
+        await self.sync_clock(room_id)
 
     async def _handle_interaction_request(self, conn, frame):
         if not await self._require_registered(conn, "proposing interactions"):

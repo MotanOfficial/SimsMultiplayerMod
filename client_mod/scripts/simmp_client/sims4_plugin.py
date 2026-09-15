@@ -12,6 +12,7 @@ _auto_connect_config = None
 
 def _apply_config(config):
     from simmp_client.commands import cheat_commands
+    from simmp_client.hooks import game_hooks
 
     client = cheat_commands.get_client()
     client.client_name = config["name"]
@@ -22,6 +23,10 @@ def _apply_config(config):
     client.world_interval = config["world_interval"]
     client.interaction_sync = config["interaction_sync"]
     client.interaction_interval = config["interaction_interval"]
+    client.funds_interval = config["funds_interval"]
+    client.funds_sampler = game_hooks.sample_household_funds if config["sync_funds"] else None
+    client.funds_applier = game_hooks.set_household_funds if config["sync_funds"] else None
+    client._object_gone_applier = game_hooks.apply_object_gone if config["build_sync"] else None
     client.autonomy_suppression = config["autonomy_suppression"]
     cheat_commands.configure_ui(config["ui_dialogs"])
     client.auto_reconnect = config["auto_reconnect"]

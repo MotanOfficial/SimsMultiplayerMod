@@ -9,6 +9,7 @@ from simmp.constants import (
     MAX_CLIENT_ID_LENGTH,
     MAX_CLOCK_SPEED,
     MAX_EVENT_TYPE_LENGTH,
+    MAX_FUNDS_BALANCE,
     MAX_INTERACTION_TYPE_LENGTH,
     MAX_NAME_LENGTH,
     MAX_OBJECT_FIELDS,
@@ -271,6 +272,15 @@ def _validate_field_types(msg_type, payload):
             require(len(data) % 4 == 0 and (len(data) // 4) * 3 <= MAX_SAVE_CHUNK_BYTES + 2, "MALFORMED", "bad base64 length")
     if msg_type == "SAVE_ACK":
         require(payload["reached"] >= 0, "MALFORMED", "'reached' must be >= 0")
+
+    if msg_type == "FUNDS_SYNC":
+        balance = payload["balance"]
+        require(
+            isinstance(balance, int) and not isinstance(balance, bool)
+            and 0 <= balance <= MAX_FUNDS_BALANCE,
+            "MALFORMED",
+            "'balance' must be an int simoleon balance in 0..%s" % MAX_FUNDS_BALANCE,
+        )
 
     if msg_type in ("TIME_SYNC", "TIME_SPEED"):
         speed = payload["speed"]

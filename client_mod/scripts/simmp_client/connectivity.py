@@ -69,6 +69,7 @@ class MultiplayerClient:
         self.time_ticks = None
         self.time_ready_sent = False
         self.zone_ready_id = None
+        self.time_unready_sent = False
         self._ready_pending_reason = ""
         self.clock_interval = 1.5
         self._last_clock_tick = 0.0
@@ -78,6 +79,17 @@ class MultiplayerClient:
         self._clock_apply_enabled = True
         self._autonomy_reconciler = None
         self.autonomy_suppression = True
+        # Household funds sync (money).
+        self.funds_sampler = None
+        self.funds_applier = None
+        self.funds_interval = 2.0
+        self._funds_baseline = None
+        self._last_funds_sent = 0.0
+        # Lot-object live sync (build/buy moves, deletions, placements).
+        self._object_gone_applier = None
+        self._world_seen_last = None
+        self._world_missing_streak = {}
+        self._world_tracked_zone = None
 
     def set_presence_sampler(self, sampler):
         """sampler() -> (zone_id, lot_id) or None. Called on the game thread."""
@@ -86,6 +98,18 @@ class MultiplayerClient:
     def set_world_sampler(self, sampler):
         """sampler() -> [{"key": str, "fields": {...}}] or None. Game thread."""
         self._world_sampler = sampler
+
+    def set_funds_sampler(self, sampler):
+        """sampler() -> household simoleon balance (int) or None."""
+        self.funds_sampler = sampler
+
+    def set_funds_applier(self, applier):
+        """applier(balance) -> apply an absolute household balance."""
+        self.funds_applier = applier
+
+    def set_object_gone_applier(self, applier):
+        """applier([key, ...]) -> best-effort destroy of removed lot objects."""
+        self._object_gone_applier = applier
 
     def set_world_applier(self, applier):
         """applier(entries) -> int. Called on the game thread after remote
@@ -395,6 +419,15 @@ class MultiplayerClient:
             return
         zone_state = game_hooks.current_zone_running_state()
         if not zone_state.running:
+            # Outside a playable zone (CAS, manage worlds, main menu, loading).
+            # Tell the server so it re-gates the room PAUSED until we return
+            # and re-ready; without this the other player would keep playing
+            # while we are away in CAS/menus.
+            if self.time_ready_sent and not self.time_unready_sent:
+                if engine.send_time_unready():
+                    self.time_unready_sent = True
+                    self.time_ready_sent = False
+                    self._log("TIME", "TIME_UNREADY (left playable zone)")
             if not self.time_ready_sent:
                 reason = str(zone_state)
                 if reason != self._ready_pending_reason:
@@ -405,6 +438,7 @@ class MultiplayerClient:
         zone_id = zone_state.zone_id
         if zone_id is None:
             return
+        self.time_unready_sent = False
         if not self.time_ready_sent or self.zone_ready_id != zone_id:
             if not engine.send_time_ready(zone_id):
                 return
@@ -731,6 +765,28 @@ class MultiplayerClient:
             self._log("SYNC", "World state for room %s: %s object(s)" % (
                 payload["room_id"], len(payload["objects"]),
             ))
+        elif message_type == "OBJECT_GONE":
+            key = payload["key"]
+            self.session.world.apply_removal(key, payload.get("zone_id"))
+            self._log("SYNC", "Object removed: %s" % key)
+            applier = self._object_gone_applier
+            if applier is not None:
+                try:
+                    applier([key])
+                except Exception:
+                    pass
+        elif message_type == "FUNDS_SYNC":
+            balance = payload["balance"]
+            self._funds_baseline = balance
+            applier = self.funds_applier
+            if applier is not None:
+                try:
+                    result = applier(balance)
+                except Exception:
+                    result = None
+                self._log("FUNDS", "peer set household balance %s -> %s" % (balance, result))
+            else:
+                self._log("FUNDS", "peer set household balance %s" % balance)
             self._notify_remote_world()
         elif message_type == "WORLD_DELTA":
             self.session.apply_world_delta(payload)
@@ -914,6 +970,7 @@ class MultiplayerClient:
             self.session.purge_stale_presence()
             self._maybe_send_presence()
             self._maybe_send_world_update()
+            self._maybe_sync_funds()
             self._maybe_send_interactions()
             self._maybe_report_travel_ready()
             self._maybe_auto_reconnect()
@@ -1084,17 +1141,48 @@ class MultiplayerClient:
         now = time.time()
         if now - self._last_world_sent < self.world_interval:
             return
+        # Travel/loading safety: never declare objects "gone" while the zone
+        # is not running, or an empty sampler during a loading screen would
+        # look like the whole lot was deleted.
+        zone_state = game_hooks.current_zone_running_state()
+        running = bool(zone_state.running)
+        zone_id = zone_state.zone_id
+        if self._world_tracked_zone != zone_id:
+            self._world_seen_last = None
+            self._world_missing_streak = {}
+            self._world_tracked_zone = zone_id
         try:
             objects = self._world_sampler()
         except Exception:
             self._log("ERROR", "world sampler failed")
             return
-        if not objects:
-            return
+        present = {}
+        for entry in objects or []:
+            key = entry.get("key")
+            if isinstance(key, str) and key:
+                present[key] = entry
+        # Gone detection (build/buy deletes): a key that used to exist and has
+        # now been missing on two consecutive ticks is broadcast as removed.
+        # Sims are excluded - a sim leaving the zone is travel, not deletion.
+        if self._world_seen_last is not None and running:
+            for key in list(self._world_seen_last):
+                if key in present or key.startswith("sim:"):
+                    continue
+                streak = self._world_missing_streak.get(key, 0) + 1
+                if streak >= 2:
+                    self._world_seen_last.discard(key)
+                    self._world_missing_streak.pop(key, None)
+                    self._send_object_gone(key)
+                else:
+                    self._world_missing_streak[key] = streak
+        if self._world_seen_last is None:
+            self._world_seen_last = set(present)
+        else:
+            self._world_seen_last.update(present)
         mine = self.session.player_id
         updates = []
         now = time.time()
-        for entry in objects:
+        for entry in present.values():
             key = entry.get("key")
             if not isinstance(key, str) or not key:
                 continue
@@ -1110,6 +1198,49 @@ class MultiplayerClient:
             updates.append({"key": key, "fields": entry.get("fields", {}), "rev": 0})
         if updates and self.engine.send_object_update(updates):
             self._last_world_sent = now
+
+    def _send_object_gone(self, key):
+        if self.engine is None or not self.engine.connected:
+            return
+        if self.engine.send_object_gone(key):
+            mirror = self.session.world.get(key)
+            if mirror is not None:
+                self.session.world.apply_removal(key)
+            self._log("SYNC", "Object removed locally, broadcast gone: %s" % key)
+
+    def _maybe_sync_funds(self):
+        """Broadcast a changed household balance; apply nothing locally.
+
+        The local game already holds the (possibly new) balance - we just
+        publish it so peers converge to the same number. The first sample is
+        absorbed as a baseline so connecting doesn't overwrite a peer
+        mid-session.
+        """
+        if self.funds_sampler is None:
+            return
+        if self.engine is None or not self.engine.connected:
+            return
+        now = time.time()
+        if now - self._last_funds_sent < self.funds_interval:
+            return
+        try:
+            balance = self.funds_sampler()
+        except Exception:
+            self._log("ERROR", "funds sampler failed")
+            return
+        if balance is None:
+            return
+        balance = int(balance)
+        if self._funds_baseline is None:
+            self._funds_baseline = balance
+            self._log("FUNDS", "baseline %s simoleons" % balance)
+            return
+        if abs(balance - self._funds_baseline) < 1:
+            return
+        if self.engine.send_funds_sync(balance):
+            self._funds_baseline = balance
+            self._last_funds_sent = now
+            self._log("FUNDS", "broadcast balance %s (changed)" % balance)
 
     def _maybe_send_interactions(self):
         """Reconcile the mirror against what this client's sims are doing.

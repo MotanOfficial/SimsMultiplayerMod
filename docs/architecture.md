@@ -321,21 +321,24 @@ trusted on the server; anything invalid gets an `ERROR` reply and is discarded.
 - `simmp_client/config.py` — pure-Python loader for `Sims4Multiplayer.json`
   (host, port, name, auto_connect, presence_interval, presence_ttl,
   auto_accept_travel, world_sync, world_interval, interaction_sync,
-  interaction_interval, ui_dialogs, auto_reconnect, reconnect_backoff_min,
-  reconnect_backoff_max). Also used at game startup for auto-connect.
+  interaction_interval, sync_funds, funds_interval, build_sync, ui_dialogs,
+  auto_reconnect, reconnect_backoff_min, reconnect_backoff_max). Also used at
+  game startup for auto-connect.
 - `simmp_client/presence.py` — pure helpers to build/format presence payloads.
 - `simmp_client/hooks/game_hooks.py` — alarm helpers + the game-only zone
-  sampler, travel trigger, clock sampler, world sampler, and interaction
-  sampler. Imports game modules lazily so the module is importable outside the
-  game. `sample_world_objects()` and `sample_interactions()` currently return
-  `[]`: the actual game-side sim/object scans are deliberately left as
-  best-effort hooks to be filled once verified in-game (object key identity
-  across sessions is the open question).
+  sampler, travel trigger, clock sampler, world sampler, funds sampler, and
+  interaction sampler. Imports game modules lazily so the module is importable
+  outside the game. `sample_world_objects()`, `sample_lot_objects()`, and
+  `sample_interactions()` currently return `[]`: the actual game-side
+  sim/object scans are deliberately left as best-effort hooks to be filled
+  once verified in-game (object key identity across sessions is the open
+  question; lot objects use `obj:<def>@<grid>` keys for that reason).
 - `simmp_client/commands/cheat_commands.py` + `sims4_plugin.py` — game-only
   integration. Registered only when `sims4` is importable. On load, if the
   config enables `auto_connect`, a one-shot alarm connects shortly after
   startup and applies `auto_accept_travel`, `world_sync`, `world_interval`,
-  `interaction_sync`, `interaction_interval`, and `ui_dialogs` from the config.
+  `interaction_sync`, `interaction_interval`, `sync_funds`, `funds_interval`,
+  `build_sync`, and `ui_dialogs` from the config.
   The console notifier doubles as the `GameUI` console; `[MP][ERROR]` lines are
   additionally toasted as an in-game notification when `ui_dialogs` is on. The
   travel controller opens the `UiDialogOkCancel` invite (via `ui.py`) when

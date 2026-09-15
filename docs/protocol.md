@@ -48,7 +48,10 @@ All payload fields are mandatory unless noted.
 | `INTERACTION_REQUEST` | `object_key` (str), `interaction` (str), optional `zone_id` (int) | Propose starting an interaction (`interaction` is e.g. a trait/context name; the canonical list is an open research item) on `key` in your current room + zone. Optional `args` (dict of JSON primitives). First come, first served per object: you either trigger a broadcast `INTERACTION_START` to your zone (including you) or get an `ERROR` (`INTERACTION_BUSY`, `INTERACTION_COOLDOWN`). |
 | `INTERACTION_END` | `object_key` (str), optional `zone_id` (int) | Declare the interaction on `key` finished. On success the zone gets `INTERACTION_FREE` (including you); if you are not the holder you get an `ERROR INTERACTION_NOT_HELD`. |
 | `TIME_READY` | `zone_id` (int) | Report that your game has loaded `zone_id` and is ready to play. The server holds the room's clock PAUSED until **every** participant (members + disconnected ghosts) has signalled ready. Sent automatically on connection when the zone is already running and again after each `WELCOME`. |
+| `TIME_UNREADY` | (none) | Report that you left the playable zone (CAS, manage worlds, main menu). The server drops **your** readiness and re-gates the room PAUSED until you send `TIME_READY` again; other players stay ready. |
 | `TIME_SPEED` | `speed` (int) | Request a room clock speed: 0 = paused, 1 = normal, 2 = fast, 3 = fastest. Optional `ticks` (int) is a game-clock timestamp to go with the change. The server stores the desire (last change wins) and broadcasts `TIME_SYNC`; while the gate is closed the broadcast remains PAUSED until every participant readies. |
+| `OBJECT_GONE` | `key` (str), optional `zone_id` (int) | A lot object was removed (build/buy delete). Only the current owner (or an unclaimed object) may remove it; the server drops the catalog entry and relays to the zone excluding the sender. Bad ownership -> `ERROR OBJECT_LOCKED`. |
+| `FUNDS_SYNC` | `balance` (int, 0..`MAX_FUNDS_BALANCE`) | Echo-style household balance broadcast. The server stamps `player_id` and relays to the **whole room including the sender**; every client applies the absolute balance, so whoever spent/received last converges everyone's simoleons. |
 
 Server-stamped fields (`EVENT.player_id`, `PRESENCE.player_id`, `PRESENCE.room_id`, `CLOCK_SYNC.player_id`, `TIME_SYNC.player_id`, `WORLD_DELTA.player_id`, `OBJECT_OWNERSHIP.player_id`, `INTERACTION_START.player_id`) are optional on the wire and may be omitted by senders.
 
@@ -75,6 +78,8 @@ Server-stamped fields (`EVENT.player_id`, `PRESENCE.player_id`, `PRESENCE.room_i
 | `INTERACTION_FREE` | `room_id`, `object_key`, `cooldown_until` (float), optional `zone_id` (int) | Broadcast to the **whole zone including the sender** when an interaction is released: explicit `INTERACTION_END`, watchdog expiry, or ghost eviction. `cooldown_until` is a server-clock timestamp; the object is blocked for interaction until then. |
 | `INTERACTION_STATE` | `room_id`, `interactions` (`[{"object_key": str, "player_id": int, "interaction": str, "started_at": float, optional "args": {...}}]`), optional `zone_id` (int) | Snapshot of every active interaction in one zone of the room. Sent right after `WORLD_STATE` on `HELLO` and after `ROOM_STATE`/`WORLD_STATE` on `JOIN_ROOM`, so a client that missed broadcasts self-heals. |
 | `TIME_SYNC` | `speed` (int), optional `ticks` (int), optional `player_id` (int) | Authoritative room clock broadcast to every member (including the sender). `speed` is the effective speed: `0` while the gate is closed (any participant not ready, or mid-session disconnect), otherwise the last requested speed. `player_id` is who last requested a speed change (`null` when default). Clients must enforce `speed` locally and use the echo window to avoid re-sending their own change. |
+| `OBJECT_GONE` | `key` (str), optional `zone_id` (int) | Zone relay (excluding the sender): a lot object was removed; delete your local copy of that object. |
+| `FUNDS_SYNC` | `balance` (int), optional `player_id` (int) | Room-wide echo (including the sender): the absolute household simoleon balance to converge on. |
 
 ### Travel handshake
 
@@ -306,6 +311,7 @@ From `protocol/simmp/constants.py`:
 - `MAX_OBJECT_UPDATE_OBJECTS` = 16 (objects per `OBJECT_UPDATE`; `WORLD_STATE`/
   `WORLD_DELTA` have no object-count cap)
 - `MAX_OBJECT_VALUE_STRING` = 256 (string field values)
+- `MAX_FUNDS_BALANCE` = 10^15 (upper bound for a `FUNDS_SYNC.balance`)
 
 ## Builders
 
@@ -330,6 +336,10 @@ msg.make_interaction_request("sofa", "Read", args={"book": "Tome"})
 msg.make_interaction_end("sofa")
 msg.make_interaction_start("lobby", "sofa", "Read", 1000, 123.5)
 msg.make_interaction_free("lobby", "sofa", 128.5)
+msg.make_time_ready(4242)
+msg.make_time_unready()
+msg.make_object_gone("obj:1780@100_200_300")
+msg.make_funds_sync(25000)
 msg.make_interaction_state("lobby", [{"object_key": "sofa", "player_id": 1000, "interaction": "Read", "started_at": 123.5}])
 msg.make_error("ROOM_FULL", "room is full", ref="sofa")
 ```

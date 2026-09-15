@@ -101,8 +101,11 @@ def _travel_controller(request_id, zone_id):
 
 def install_presence_sampler():
     _client.set_presence_sampler(game_hooks.sample_current_zone)
-    _client.set_world_sampler(game_hooks.sample_world_objects)
+    _client.set_world_sampler(game_hooks.sample_playable_world)
     _client.set_world_applier(game_hooks.apply_world_updates)
+    _client.set_funds_sampler(game_hooks.sample_household_funds)
+    _client.set_funds_applier(game_hooks.set_household_funds)
+    _client.set_object_gone_applier(game_hooks.apply_object_gone)
     _client.set_interaction_sampler(game_hooks.sample_interactions)
     _client.set_interaction_applier(game_hooks.apply_interactions)
     _client.set_autonomy_reconciler(game_hooks.reconcile_autonomy)

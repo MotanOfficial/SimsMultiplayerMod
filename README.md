@@ -142,6 +142,9 @@ Python (3.8+) for the server.
      "world_interval": 5.0,
      "interaction_sync": true,
      "interaction_interval": 5.0,
+     "sync_funds": true,
+     "funds_interval": 2.0,
+     "build_sync": true,
      "ui_dialogs": true,
      "auto_reconnect": true,
      "reconnect_backoff_min": 2.0,
@@ -188,7 +191,7 @@ the game was restarted after installing the mod.
 ## Tests
 
 ```bash
-python tests/run_tests.py      # 270 tests, stdlib only
+python tests/run_tests.py      # 298 tests, stdlib only
 python -m pytest -q            # optional
 ```
 

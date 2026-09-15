@@ -30,6 +30,9 @@ DEFAULT_CONFIG = {
     "world_interval": 5.0,
     "interaction_sync": True,
     "interaction_interval": 5.0,
+    "sync_funds": True,
+    "funds_interval": 2.0,
+    "build_sync": True,
     "ui_dialogs": True,
     "autonomy_suppression": True,
     "auto_reconnect": True,
@@ -96,6 +99,17 @@ def _coerce_and_validate(values):
         interval = values["interaction_interval"]
         if isinstance(interval, bool) or not isinstance(interval, (int, float)) or interval <= 0:
             raise ConfigError("interaction_interval must be a positive number")
+
+    if "sync_funds" in values and not isinstance(values["sync_funds"], bool):
+        raise ConfigError("sync_funds must be true or false")
+
+    if "funds_interval" in values and values["funds_interval"] is not False:
+        interval = values["funds_interval"]
+        if isinstance(interval, bool) or not isinstance(interval, (int, float)) or interval <= 0:
+            raise ConfigError("funds_interval must be a positive number")
+
+    if "build_sync" in values and not isinstance(values["build_sync"], bool):
+        raise ConfigError("build_sync must be true or false")
 
     if "ui_dialogs" in values and not isinstance(values["ui_dialogs"], bool):
         raise ConfigError("ui_dialogs must be true or false")

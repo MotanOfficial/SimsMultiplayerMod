@@ -225,6 +225,52 @@ class WorldValidationTests(unittest.TestCase):
             msg.make_object_ownership("lobby", "sofa", "bob", player_id=1000)
 
 
+class LiveMessageBuilderTests(unittest.TestCase):
+    def test_object_gone_builder(self):
+        message = msg.make_object_gone("obj:123@100_200_300")
+        validate_message(message)
+        self.assertEqual(message["type"], "OBJECT_GONE")
+        self.assertEqual(message["payload"]["key"], "obj:123@100_200_300")
+
+    def test_funds_sync_builder(self):
+        message = msg.make_funds_sync(12500)
+        validate_message(message)
+        self.assertEqual(message["type"], "FUNDS_SYNC")
+        self.assertEqual(message["payload"]["balance"], 12500)
+        stamped = msg.make_funds_sync(500, player_id=1000)
+        validate_message(stamped)
+        self.assertEqual(stamped["payload"]["player_id"], 1000)
+
+    def test_time_unready_builder(self):
+        message = msg.make_time_unready()
+        validate_message(message)
+        self.assertEqual(message["type"], "TIME_UNREADY")
+
+
+class LiveValidationTests(unittest.TestCase):
+    def test_object_gone_key_must_be_non_empty_string(self):
+        with self.assertRaises(Exception):
+            msg.make_object_gone("")
+        with self.assertRaises(Exception):
+            msg.make_object_gone(42)
+
+    def test_funds_sync_balance_range(self):
+        with self.assertRaises(Exception):
+            validate_message(msg.make_funds_sync(-1))
+        with self.assertRaises(Exception):
+            validate_message(msg.make_funds_sync(10**15 + 1))
+        with self.assertRaises(Exception):
+            msg.make_funds_sync("rich")
+        validate_message(msg.make_funds_sync(0))
+        validate_message(msg.make_funds_sync(10**15))
+        validate_message(msg.make_funds_sync(2.5))
+
+    def test_time_unready_has_no_required_payload(self):
+        message = msg.make_time_unready()
+        validate_message(message)
+        self.assertEqual(message["payload"], {})
+
+
 class InteractionMessageBuilderTests(unittest.TestCase):
     def test_interaction_request_builder(self):
         message = msg.make_interaction_request("sofa", "Read", {"book": "Tome"})

@@ -698,6 +698,50 @@ button that launches the game already configured to auto-connect.
   game and land in the shared household. Requires two PCs on the same LAN
   (Windows firewall must allow the launcher/server on the host).
 
+## M16 - Save sharing, joining gate, live money/build (DONE)
+
+Second PC joins a session like the mod always knew what to do: no manual
+save copy, no barrier to entry while someone is still loading, and the
+household's money plus build/buy object edits flow between the two live
+games instead of living inside each machine's save.
+
+- [x] Save-cache replay for late joiners: the server caches a completed
+  `SAVE_PUSH` per room and replays it to any client that joins after the
+  host pushed (guard: only finished, on-disk caches; never streams a
+  half-open file). The joiner requests it automatically right after
+  WELCOME (lobby receive path), so the latch that used to wait for the
+  host's manual re-share no longer applies.
+- [x] Joining gate: time is kept paused until every player (including
+  ghosts) has signalled `TIME_READY`. The client now re-pauses eagerly
+  while gated (even inside its own echo window) so a player who hits play
+  while a peer is still joining cannot run the room ahead.
+- [x] `TIME_UNREADY`: when a player leaves the running zone (CAS, manage
+  worlds, main menu), the server drops only that player's readiness and
+  the room re-gates PAUSED until they send `TIME_READY` again.
+- [x] Money sync (`FUNDS_SYNC`, protocol-int validated to
+  `MAX_FUNDS_BALANCE`): the client samples the household balance every
+  `funds_interval`, broadcasts on change (>= 1 simoleon), and applies a
+  peer's absolute balance via `add_money`/`remove_money` deltas.
+- [x] Build/buy object sync: the world sampler now also enumerates
+  instanced lot objects under `obj:<def>@<grid>` keys (definition +
+  coarse position, since runtime object ids differ per machine). Moves and
+  new placements are broadcast as `WORLD_DELTA` deltas like sims; deletes
+  are detected after two missing ticks (`OBJECT_GONE`, sims excluded,
+  suppressed while the zone is not running) and applied locally by
+  destroying the nearest same-definition object. New catalog placements
+  and structural build apply on the next save reload (shared save).
+- [x] Tests (+28): protocol builders/validation for `OBJECT_GONE` /
+  `FUNDS_SYNC` / `TIME_UNREADY`, server handler flows (funds echo
+  including sender, object-gone ownership/relay/catalog removal,
+  unready re-gate & re-open), client funds baseline/throttle/apply,
+  gone-detection hysteresis + zone guards, TIME_UNREADY flow, offline
+  hook safety. Full suite:
+  `python tests/run_tests.py` -> **298 tests OK**.
+- [ ] In-game verification (2 PCs, Radmin/LAN): spend simoleons on one
+  side while the other watches the balance converge; move/rotate a sofa
+  and delete a lamp and watch them mirror; open CAS on one machine and
+  confirm the other's game pauses until you return.
+
 ## Out of scope until explicit decision
 
 - Full DNA/lot/room package sharing (needs a large asset protocol and

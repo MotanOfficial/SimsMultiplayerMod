@@ -297,6 +297,36 @@ def make_save_request():
     return build_message("SAVE_REQUEST", {})
 
 
+def make_object_gone(key):
+    """Notify the room that a lot object has been removed (build/buy delete).
+
+    `key` is a ``obj:<def>:<grid>`` world key as produced by the lot object
+    sampler. Peers destroy their local copy of the same object and drop the
+    mirror entry.
+    """
+    return build_message("OBJECT_GONE", {"key": key})
+
+
+def make_funds_sync(balance, player_id=None):
+    """Share the household simoleon balance (echo-style, room-wide).
+
+    `balance` is the absolute household funds amount the sender converged to.
+    Peers apply it absolutely so all sides end up on the same number. The
+    server stamps `player_id` when relaying.
+    """
+    payload = {"balance": int(balance)}
+    if player_id is not None:
+        payload["player_id"] = player_id
+    return build_message("FUNDS_SYNC", payload)
+
+
+def make_time_unready():
+    """Signal that the caller is no longer in a playable zone (CAS screen,
+    manage worlds, main menu). The server re-gates the room PAUSED until the
+    caller returns and sends TIME_READY again."""
+    return build_message("TIME_UNREADY", {})
+
+
 def make_time_sync(speed, ticks=None, player_id=None, gate=None):
     """Authoritative room clock state (sent by the server to clients).
 

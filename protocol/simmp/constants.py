@@ -23,6 +23,10 @@ MAX_SAVE_CHUNK_BASE64_LENGTH = ((MAX_SAVE_CHUNK_BYTES + 2) // 3) * 4
 MAX_SAVE_CHUNKS = 20000
 MAX_SAVE_BYTES = 512 * 1024 * 1024
 
+# Upper bound for a household simoleon balance in one FUNDS_SYNC frame.
+# Generous (a trillion simoleons) and far above any legit household money.
+MAX_FUNDS_BALANCE = 10**15
+
 # Wire values for the shared clock (`TIME_SYNC`/`TIME_SPEED`). These mirror
 # the int values of the game's `ClockSpeedMode` enum (PAUSED=0..SPEED3=3).
 CLOCK_SPEED_PAUSED = 0
@@ -54,6 +58,7 @@ CLOCK_SYNC = "CLOCK_SYNC"
 OBJECT_UPDATE = "OBJECT_UPDATE"
 OBJECT_CLAIM = "OBJECT_CLAIM"
 OBJECT_RELEASE = "OBJECT_RELEASE"
+OBJECT_GONE = "OBJECT_GONE"
 WORLD_STATE = "WORLD_STATE"
 WORLD_DELTA = "WORLD_DELTA"
 OBJECT_OWNERSHIP = "OBJECT_OWNERSHIP"
@@ -66,8 +71,10 @@ INTERACTION_STATE = "INTERACTION_STATE"
 SAVE_PUSH = "SAVE_PUSH"
 SAVE_ACK = "SAVE_ACK"
 SAVE_REQUEST = "SAVE_REQUEST"
+FUNDS_SYNC = "FUNDS_SYNC"
 TIME_SYNC = "TIME_SYNC"
 TIME_READY = "TIME_READY"
+TIME_UNREADY = "TIME_UNREADY"
 TIME_SPEED = "TIME_SPEED"
 ERROR = "ERROR"
 
@@ -95,6 +102,7 @@ MESSAGE_TYPES = frozenset(
         OBJECT_UPDATE,
         OBJECT_CLAIM,
         OBJECT_RELEASE,
+        OBJECT_GONE,
         WORLD_STATE,
         WORLD_DELTA,
         OBJECT_OWNERSHIP,
@@ -107,8 +115,10 @@ MESSAGE_TYPES = frozenset(
         SAVE_PUSH,
         SAVE_ACK,
         SAVE_REQUEST,
+        FUNDS_SYNC,
         TIME_SYNC,
         TIME_READY,
+        TIME_UNREADY,
         TIME_SPEED,
         ERROR,
     ]
@@ -137,6 +147,7 @@ REQUIRED_PAYLOAD_FIELDS = {
     OBJECT_UPDATE: ("objects",),
     OBJECT_CLAIM: ("key",),
     OBJECT_RELEASE: ("key",),
+    OBJECT_GONE: ("key",),
     WORLD_STATE: ("room_id", "objects"),
     WORLD_DELTA: ("room_id", "seq", "updates"),
     OBJECT_OWNERSHIP: ("room_id", "key", "owner"),
@@ -149,8 +160,10 @@ REQUIRED_PAYLOAD_FIELDS = {
     SAVE_PUSH: ("slot", "seq", "total", "size", "data"),
     SAVE_ACK: ("slot", "ok", "reached"),
     SAVE_REQUEST: (),
+    FUNDS_SYNC: ("balance",),
     TIME_SYNC: ("speed",),
     TIME_READY: ("zone_id",),
+    TIME_UNREADY: (),
     TIME_SPEED: ("speed",),
     ERROR: ("code", "message"),
 }
@@ -168,6 +181,7 @@ OPTIONAL_PAYLOAD_FIELDS = {
     OBJECT_UPDATE: ("player_id", "room_id", "zone_id"),
     OBJECT_CLAIM: ("zone_id",),
     OBJECT_RELEASE: ("zone_id",),
+    OBJECT_GONE: ("player_id", "zone_id"),
     WORLD_STATE: ("zone_id",),
     WORLD_DELTA: ("player_id", "zone_id"),
     OBJECT_OWNERSHIP: ("player_id", "zone_id"),
@@ -178,8 +192,10 @@ OPTIONAL_PAYLOAD_FIELDS = {
     INTERACTION_STATE: ("zone_id",),
     SAVE_PUSH: ("origin",),
     SAVE_ACK: ("message",),
+    FUNDS_SYNC: ("player_id",),
     TIME_SYNC: ("ticks", "player_id", "gate"),
     TIME_READY: ("player_id",),
+    TIME_UNREADY: ("player_id",),
     TIME_SPEED: ("ticks", "player_id"),
     ERROR: ("ref",),
 }

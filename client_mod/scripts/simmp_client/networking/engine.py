@@ -199,8 +199,17 @@ class ClientEngine:
     def send_time_ready(self, zone_id):
         return self.send_message(msg.make_time_ready(zone_id))
 
+    def send_time_unready(self):
+        return self.send_message(msg.make_time_unready())
+
     def send_time_speed(self, speed, ticks=None):
         return self.send_message(msg.make_time_speed(speed, ticks=ticks))
+
+    def send_object_gone(self, key):
+        return self.send_message(msg.make_object_gone(key))
+
+    def send_funds_sync(self, balance):
+        return self.send_message(msg.make_funds_sync(balance))
 
     def send_object_update(self, objects, zone_id=None):
         """`objects` is [{"key": str, "fields": {...}, "rev": int}]."""

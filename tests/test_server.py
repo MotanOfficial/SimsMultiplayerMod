@@ -886,3 +886,123 @@ class StatusFileTests(unittest.TestCase):
                 await server.stop()
 
         self.run_flow(flow())
+
+
+class LiveFlowTests(unittest.TestCase):
+    def run_flow(self, coro):
+        asyncio.run(coro)
+
+    def test_funds_sync_echoes_including_sender(self):
+        async def flow(server, port):
+            alice = await FakeClient.connect(port, "Alice")
+            await alice.send(msg.make_hello("Alice", "t"))
+            await alice.wait_for_type("WELCOME")
+
+            bob = await FakeClient.connect(port, "Bob")
+            await bob.send(msg.make_hello("Bob", "t"))
+            await bob.wait_for_type("WELCOME")
+            await alice.recv_until(lambda m: m["type"] == "PLAYER_JOINED")
+
+            await alice.send(msg.make_funds_sync(25000, player_id=None))
+            alice_sync = await alice.wait_for_type("FUNDS_SYNC")
+            bob_sync = await bob.wait_for_type("FUNDS_SYNC")
+            self.assertEqual(alice_sync["payload"]["balance"], 25000)
+            self.assertEqual(bob_sync["payload"]["balance"], 25000)
+            self.assertEqual(
+                server.session.get_room_funds("lobby")["balance"], 25000
+            )
+
+        self.run_flow(_with_server(flow))
+
+    def test_object_gone_owned_relayed_and_catalog_removed(self):
+        async def flow(server, port):
+            alice = await FakeClient.connect(port, "Alice")
+            await alice.send(msg.make_hello("Alice", "t"))
+            await alice.wait_for_type("WELCOME")
+
+            bob = await FakeClient.connect(port, "Bob")
+            await bob.send(msg.make_hello("Bob", "t"))
+            await bob.wait_for_type("WELCOME")
+            await alice.recv_until(lambda m: m["type"] == "PLAYER_JOINED")
+
+            # Alice claims and populates the object.
+            await alice.send(msg.make_object_claim("obj:9@1_2_3"))
+            await alice.wait_for_type("OBJECT_CLAIM_ACK")
+            await bob.wait_for_type("OBJECT_OWNERSHIP")
+            await alice.send(msg.make_object_update([{"key": "obj:9@1_2_3", "fields": {"x": 1.0}, "rev": 1}]))
+            await bob.wait_for_type("WORLD_DELTA")
+
+            # Non-owner (Bob) cannot delete: lock error, catalog intact, no relay.
+            await bob.send(msg.make_object_gone("obj:9@1_2_3"))
+            error = await bob.wait_for_type("ERROR")
+            self.assertEqual(error["payload"]["code"], "OBJECT_LOCKED")
+            self.assertIn(
+                "obj:9@1_2_3",
+                [o["key"] for o in server.session.get_world_objects("lobby")],
+            )
+            await asyncio.sleep(0.2)
+            self.assertFalse(any(m["type"] == "OBJECT_GONE" for m in alice.messages))
+
+            # Owner removes it: relayed to Bob, catalog entry dropped.
+            await alice.send(msg.make_object_gone("obj:9@1_2_3"))
+            relay = await bob.wait_for_type("OBJECT_GONE")
+            self.assertEqual(relay["payload"]["key"], "obj:9@1_2_3")
+            await asyncio.sleep(0.2)
+            self.assertNotIn(
+                "obj:9@1_2_3",
+                [o["key"] for o in server.session.get_world_objects("lobby")],
+            )
+            self.assertFalse(any(m["type"] == "OBJECT_GONE" for m in alice.messages))
+
+        self.run_flow(_with_server(flow))
+
+    def test_time_unready_re_gates_room(self):
+        async def drain_until(client, gate_value):
+            """Read TIME_SYNCs until one matches `gate` == gate_value."""
+            while True:
+                sync = await client.wait_for_type("TIME_SYNC")
+                if sync["payload"].get("gate") is gate_value:
+                    return sync
+
+        async def flow(server, port):
+            alice = await FakeClient.connect(port, "Alice")
+            await alice.send(msg.make_hello("Alice", "t"))
+            await alice.wait_for_type("WELCOME")
+
+            bob = await FakeClient.connect(port, "Bob")
+            await bob.send(msg.make_hello("Bob", "t"))
+            await bob.wait_for_type("WELCOME")
+            await alice.recv_until(lambda m: m["type"] == "PLAYER_JOINED")
+
+            # Both ready -> gate opens.
+            await alice.send(msg.make_time_ready(100))
+            await bob.send(msg.make_time_ready(100))
+            a_open = await drain_until(alice, False)
+            b_open = await drain_until(bob, False)
+            self.assertEqual(a_open["payload"]["speed"], 1)
+            self.assertEqual(b_open["payload"]["speed"], 1)
+
+            # Bob goes to CAS/a menu -> whole room pauses until he re-readies.
+            await bob.send(msg.make_time_unready())
+            a_gated = await drain_until(alice, True)
+            b_gated = await drain_until(bob, True)
+            self.assertEqual(a_gated["payload"]["speed"], 0)
+            self.assertEqual(b_gated["payload"]["speed"], 0)
+
+            # Re-ready re-opens the gate.
+            await bob.send(msg.make_time_ready(100))
+            a_reopen = await drain_until(alice, False)
+            b_reopen = await drain_until(bob, False)
+            self.assertEqual(a_reopen["payload"]["speed"], 1)
+            self.assertEqual(b_reopen["payload"]["speed"], 1)
+
+        self.run_flow(_time_server(flow))
+
+
+async def _time_server(flow):
+    server = MPServer("127.0.0.1", 0)
+    await server.start()
+    try:
+        await flow(server, server.port)
+    finally:
+        await server.stop()
