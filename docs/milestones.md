@@ -1,0 +1,563 @@
+# Milestones
+
+The project is built in milestones. Each milestone ends with a runnable,
+tested vertical slice so the game and server can be exercised end to end.
+
+## M1 - Foundations (DONE)
+
+Target: prove the full loop over a real TCP connection.
+
+- [x] Shared protocol package `protocol/simmp` (envelope, framing,
+      validation, message builders), versioned and strict.
+- [x] Standalone asyncio server: hello/welcome, heartbeat PING/PONG,
+      lobby + custom room join, TEST EVENT broadcast, authoritative room
+      state, disconnect handling.
+- [x] Sims 4 client mod:
+  - non-blocking threaded socket engine (never freezes the sim);
+  - local mirror of server truth (`LocalSession`);
+  - in-game cheat commands: `mp.connect`, `mp.disconnect`, `mp.join`,
+    `mp.test`, `mp.status`, `mp.process`;
+  - import-guarded modules so the package is testable outside the game.
+- [x] Build pipeline: `python client_mod/build_script_mod.py package`
+      produces `Sims4Multiplayer.ts4script` (with the empty-`.pyo` trick);
+      `dev` copies loose files into a `Mods/Sims4Multiplayer/Scripts/`
+      folder for iteration.
+  > Verified: the packed zip contains only `.py` + sibling `.pyo` pairs,
+  > no `__pycache__`/`.pyc` leaks.
+- [x] Tests (stdlib `unittest`, no third-party deps): framing, validation,
+      messages, server integration (in-process), client engine.
+      `python tests/run_tests.py` -> 38 tests pass.
+- [x] Live smoke test: `python server/main.py` + real client connection,
+      WELCOME received, server logs to console.
+
+M1 deliberately has **no game-world replication** - it delivers the
+transport, session, room and event plumbing that later milestones build on.
+
+## M2 - In-game presence & reliability (DONE)
+
+- [x] **Config + auto-connect**: `Sims4Multiplayer.json` (host, port, name,
+      `auto_connect`, `presence_interval`). Loader is pure Python and unit
+      tested; discovered via explicit path, `SIM4_MP_CONFIG`, or the game's
+      Mods folder. When `auto_connect` is on, the plugin schedules a
+      one-shot connect shortly after startup. Manual entry point:
+      `mp.autoconnect`.
+- [x] **Presence snapshots**: new `PRESENCE` protocol message (zone/lot +
+      timestamp). The game thread samples the current zone via a guarded
+      game hook and the connectivity alarm sends it on an interval; the
+      server stamps origin identity and relays within the room; the client
+      mirrors a per-player presence map. Console view: `mp.who`.
+- [x] **Reliable-room layer**: every `EVENT` now carries a sender `seq`.
+      The server dedupes resends per player and acks each accepted event
+      (`EVENT_ACK`); the client keeps un-acked events in a bounded pending
+      buffer, drops them on ack, and resends them when it reconnects.
+      Protocol bumped to **v2**.
+- [x] **Stable player identity**: `HELLO` takes an optional `client_id`
+      (<= 64 chars). The server keeps a `client_id` -> player map after a
+      disconnect ("ghost" player), so a reconnect reuses the same
+      `player_id`, room, and event-dedup state (resends never duplicate to
+      peers across sessions). A reconnect racing the live socket takes the
+      identity over by closing the stale connection. The mod generates one
+      `uuid4().hex` per client automatically; CLI smoke clients pass
+      `--client-id`. Without `client_id`, HELLO behaves as before (fresh
+      player each session).
+- [x] **Live status**: `mp.status`/`mp.who` show the roster, presence, and
+      pending counts; `mp.*` notifications go through one notifier that
+      currently prints to the console (a real in-game toast/popup UI needs a
+      game-side UI asset and is deferred - console is the working M2 UI).
+- [x] Tests: protocol v2 builders/validation, server dedup+ack+presence
+      relay, engine seq/pending/ack + reconnect-resend, config loader,
+      presence helpers, offline game-hook no-ops.
+
+Protocol v2 is backward-incompatible with the M1 0.x wire format, but since
+the server and mod ship together this is a clean cut.
+
+## M3 - Travel & lot sync (DONE)
+
+- [x] **Group travel handshake**: new protocol messages
+      `TRAVEL_REQUEST`/`INVITE`/`RESPONSE`/`BEGIN`/`READY`/`COMPLETE`/`ABORT`
+      and a server-side `TravelCoordinator` holding one `TravelSession` per
+      room. The initiator's room members are invited (everyone except the
+      initiator); travel begins only when every invitee accepted (or
+      immediately when solo), with watchdog timeouts (invite 15s / ready 30s,
+      injectable for tests). All-or-nothing: any decline, member disconnect,
+      wrong-zone READY, or timeout abort broadcasts `TRAVEL_ABORT` with the
+      reason; a newer request supersedes the active one.
+- [x] **Clock sync**: `CLOCK_SYNC` message (zone, absolute_ticks, real_time,
+      clock_speed). The server caches the latest beacon on each player and
+      relays beacons in-room with a stamped origin. After a completed travel it
+      re-broadcasts the initiator's stored beacon (excluding the initiator)
+      so the room can realign game time.
+- [x] **Client travel integration**: `LocalSession` travel state machine
+      (idle/invited/traveling/traveled), auto-accept (`auto_accept_travel`,
+      plus a per-request `travel_controller` override), and a best-effort
+      game hook that triggers `sim_info.send_travel_switch_to_zone_op` on
+      `TRAVEL_BEGIN`. A repeating-alarm poller reports `TRAVEL_READY` once the
+      game reports the target zone running (`services.current_zone_id()`,
+      `zone.is_zone_running`); where the hook is unavailable it logs a hint to
+      use `mp.travel_ready`. New commands: `mp.travel <zone_id>`,
+      `mp.travel_ready`, `mp.travel_autoaccept on|off`, `mp.clock`.
+- [x] **Config**: new `auto_accept_travel` boolean in `Sims4Multiplayer.json`,
+      applied on auto-connect and honored by `mp.autoconnect`.
+- [x] **Smoke tooling**: `tests/smoke/smoke_client.py` gained `--travel`,
+      `--autoaccept`, `--travel-ready`, and `--clock`, enabling a scripted
+      two-client host/invite/BEGIN/READY/COMPLETE run against the live server.
+- [x] Tests: server travel flows (invite/accept/begin/ready/complete, solo
+      begin, decline abort, invite/ready timeouts, member-disconnect abort,
+      wrong-zone abort, unregistered rejection, clock relay), client travel
+      flow (two `MultiplayerClient`s against a real in-process server:
+      request -> invite -> auto-accept -> BEGIN -> manual READY -> COMPLETE,
+      decline path, clock mirroring), protocol builders + validation rules for
+      all new messages. Full suite: `python tests/run_tests.py` -> 93 tests
+      (the hardening pass added keep-alive/reap/presence-TTL coverage).
+- [x] In-game UI (toast/popup) for travel invites: no longer deferred - the M6
+      travel-invite dialog surfaces it in-game (see the M6 section), with the
+      console fallback and `auto_accept_travel` behavior intact.
+
+## M4 - World-state replication (DONE)
+
+- [x] Protocol v3: new message types `OBJECT_CLAIM`, `OBJECT_RELEASE`,
+      `OBJECT_UPDATE`, `WORLD_STATE`, `WORLD_DELTA`, `OBJECT_OWNERSHIP`,
+      `OBJECT_CLAIM_ACK`; structural validation for object entries (non-empty
+      keys <= 64 chars, <= 32 fields, primitive-only field values, `rev`
+      integer, per-message object cap of 16, `WORLD_DELTA.seq >= 1`) and the
+      `owner` int-or-null special case.
+- [x] Server authoritative **object catalog** per room (`Session`): claim is
+      first-come-first-served (`OBJECT_CLAIM_ACK` to the winner +
+      `OBJECT_OWNERSHIP` broadcast), release clears the owner, `OBJECT_UPDATE`
+      is ownership-checked (`ERROR OBJECT_LOCKED` / `ERROR OBJECT_NOT_FOUND`)
+      and only changed fields are merged. A per-room monotonic world `seq`
+      rides on every `WORLD_DELTA` relay (never echoed to the sender).
+- [x] `WORLD_STATE` full snapshot sent right after `ROOM_STATE` on both `HELLO`
+      and `JOIN_ROOM`, so late joiners self-heal.
+- [x] Client `WorldMirror`/`ObjectMirror` (pure, offline-testable): full
+      replace on snapshot, field merge + stale-`seq` drop on delta, owner
+      tracking, and lerped `display_position(now)` for smoothing.
+- [x] Client wiring: `claim_object`/`release_object`/`update_object`,
+      `set_world_sampler`, a periodic world tick that pushes only locally-owned
+      objects (`world_sync`/`world_interval` config), and console commands
+      `mp.claim`, `mp.release`, `mp.obj`, `mp.world`. `sample_world_objects()`
+      is a best-effort hook currently returning `[]` (see open question).
+- [x] Smoke tooling: `--world <key>` claims an object and pumps position
+      deltas; `--ping` added earlier gives every smoke client a heartbeat.
+- [x] Tests: protocol builders + validation for every new message, full
+      server claim/update/lock/release flow with a late joiner, mirror unit
+      tests, and a two-`MultiplayerClient` integration test (claim -> own +
+      peer ownership ack, locked + not-found errors). Full suite:
+      `python tests/run_tests.py` -> 118 tests.
+- [ ] Open question for the game hook: what identifies a world object across
+      sessions. The protocol assumes a stable string `key` per object per room;
+      the in-game sampler (`sample_world_objects`) is left unimplemented until
+      object identity (e.g. object id vs. persistent id) is confirmed in-game.
+      Until then `mp.claim`/`mp.obj` exercise the path manually.
+
+## M5 - Interaction sync & conflict resolution (DONE)
+
+- [x] Protocol v4 (the M4 blurb above is now historical; v3 -> v4 is the M5
+      cut): new message types `INTERACTION_REQUEST`, `INTERACTION_END`
+      (client -> server) and `INTERACTION_START`, `INTERACTION_FREE`,
+      `INTERACTION_STATE` (server -> client). `ERROR` gained an optional
+      `ref` payload field carrying the offending object key. Structural
+      validation: non-empty `object_key`/`interaction` strings (keys <= 64,
+      types <= 128 chars), `started_at`/`cooldown_until` numbers,
+      `player_id` ints, and `args` limited to dicts of JSON primitives with
+      capped keys.
+- [x] Server-authoritative **interaction store** per room (`Session`):
+      first-come, first-served per object key; a grant broadcasts
+      `INTERACTION_START` to the whole room **including the sender**
+      (echo-style, so one broadcast confirms to the requester and updates
+      every peer - no separate ack). Denials are explicit `ERROR` replies
+      (`INTERACTION_BUSY`, `INTERACTION_COOLDOWN`, `INTERACTION_NOT_HELD`)
+      with the key in `ref`.
+- [x] Cooldown + watchdog: ending (or releasing) an interaction starts a
+      `interaction_cooldown` (default 5s, injectable) during which the key is
+      refused; the reaper auto-releases interactions older than
+      `interaction_max_duration` (default 300s, injectable), emitting
+      `INTERACTION_FREE`. Note: M5's "disconnect releases everything a holder
+      has" behavior was replaced in M6 by the ghost holding period (below), so
+      a disconnect no longer emits an immediate `INTERACTION_FREE`.
+- [x] `INTERACTION_STATE` full snapshot sent right after `WORLD_STATE` on both
+      `HELLO` and `JOIN_ROOM`, so late joiners and lost broadcasts self-heal.
+- [x] Client `InteractionMirror` (pure, offline-testable): active interactions
+      keyed by object, cooldown bookkeeping, room guards on broadcast applies.
+- [x] Client wiring: `propose_interaction(key, interaction, args=None)` and
+      `end_interaction(key)`, `set_interaction_sampler`, a periodic interaction
+      tick that proposes sampled keys that are free and not denied and ends
+      sampled interactions no longer reported (`interaction_sync` /
+      `interaction_interval` config, mirroring the world-sync pattern),
+      per-key denial backoff (10s, cleared early by any START/FREE), and
+      console commands `mp.inter <key>/<type>`, `mp.inter_end <key>`,
+      `mp.inter_list`. `sample_interactions()` is a best-effort hook currently
+      returning `[]` (see open questions).
+- [x] Smoke tooling: `--interact <key>/<type>` proposes an interaction right
+      after WELCOME; combined with `--interact-end` it ends it after 3s.
+- [x] Tests: protocol builders + validation for every interaction message and
+      the `ref` on `ERROR`; server flow (FCFS grant + echo to a bystander,
+      busy/cooldown/not-held errors, cooldown expiry re-grant, `INTERACTION_STATE`
+      for a late joiner, watchdog auto-release with a tiny
+      `interaction_max_duration`); `InteractionMirror` unit tests; config keys;
+      and a two-`MultiplayerClient` integration test (propose -> both mirrors,
+      busy denial with backoff, release -> cooldown, plus an auto-sampler test
+      that proposes and ends a sampled interaction). Full suite:
+      `python tests/run_tests.py` -> 138 tests.
+- [ ] Open questions for the game hooks (unchanged from M4, extended for M5):
+      object identity across sessions, AND now: what the `interaction` type
+      string should be and how the game reports an active Sim interaction
+      queue. `sample_world_objects()` and `sample_interactions()` both return
+      `[]` until verified in-game; until then `mp.claim`/`mp.obj` and
+      `mp.inter`/`mp.inter_end` exercise the paths manually.
+- [x] In-game UI for interaction conflicts (toast/popup): done in M6 (see the
+      M6 section) - connection errors toast via the UI notifier; the
+      travel-invite dialog and interaction-conflict surface are implemented
+      there too.
+
+## M6 - In-game UI & reconnect hardening (DONE)
+
+- [x] **In-game UI layer** (`simmp_client/ui.py`, offline-safe): a `GameUI`
+      facade with `note()` (always to console), `toast()` and
+      `travel_invite()` (only when `enabled` and the game's dialog service is
+      reachable). Uses public game APIs `services.get_ui_dialog_service(0)`,
+      `ui.ui_dialog.UiDialogNotification` / `UiDialogOkCancel`, and
+      `sims4.localization.LocalizationHelperTuning.get_raw_text`. Outside the
+      game, `available()` is False and every show method returns False without
+      raising.
+- [x] **Notifications**: the console notifier doubles as the `GameUI` console,
+      and `[MP][ERROR]` lines are toasted in-game (`ui_dialogs: true`, the
+      default). `mp.ui on|off` toggles it at runtime; `mp.ui_test [text]` shows
+      a test toast.
+- [x] **Travel-invite dialog**: the travel controller now opens a
+      `UiDialogOkCancel` invite when `ui_dialogs` is on and the dialog service
+      is reachable, deferring the decision (`_decide_travel` returns `None`)
+      and responding from the dialog callback; the dialog's response listener
+      handles `UiDialogResponse.Ok` by string comparison (robust across game
+      patches) and triggers the abort on decline. Falling back to
+      `auto_accept_travel` when UI is unavailable keeps the game working in
+      the main menu. (`_decide_travel`) and the `TRAVEL_INVITE` handler now
+      support the async (deferred) decision path.
+- [x] **Reconnect restores ownership** (ghost scheme): a disconnected player
+      becomes a "ghost" for `ghost_ownership_ttl` (default 60s, injectable).
+      World ownership and held interactions stay reserved - **no** release
+      broadcast during the window - so a same-`client_id` reconnect reuses the
+      same identity, room, and state (verified via reconnect snapshots).
+      `handlers.py` clears `disconnected_at` on resume.
+- [x] **Ghost eviction**: the reaper (`expire_ghosts`) evicts ghosts past the
+      TTL: releases their interactions (cooldown + `INTERACTION_FREE`),
+      clears their object ownership (`OBJECT_OWNERSHIP` owner `null`, excluding
+      the dead peer), and forgets the identity, so a much-later reconnect
+      starts fresh with a new `player_id`.
+- [x] **Client-side reclaim fallback**: `_capture_dropped_state()` remembers
+      what the client owned/held at the moment of a drop (alarm detection or
+      an explicit `reconnect()`); after the reconnect snapshots land,
+      `_maybe_reclaim()` re-claims world keys that are not owned by another
+      player and re-proposes interactions that are unheld, not denied, and
+      past cooldown. Covers server-state loss (e.g. a restart) where no ghost
+      exists to resume; a fresh `connect()` after a drop performs the same
+      reclaim.
+- [x] **Auto-reconnect with exponential backoff**: `engine.reconnect()` now
+      also works from the `DISCONNECTED` state (the engine loop/thread keep
+      running after a drop), and the connectivity alarm runs
+      `_maybe_auto_reconnect()`: while `auto_reconnect` is on and the engine
+      is down it schedules a fail-safe reconnect (async, engine thread - the
+      game thread never blocks) and doubles the delay per failed attempt up to
+      `reconnect_backoff_max`, resetting on success. A `mp.disconnect()`
+      cancels the retry schedule. Config keys `auto_reconnect`,
+      `reconnect_backoff_min` (2.0), `reconnect_backoff_max` (30.0) +
+      `mp.auto_reconnect on|off` (runtime toggle, shown in `mp.status`). Once
+      reconnected, the ghost resume or the reclaim fallback restores state.
+- [x] **Frame-size pressure tests**: encode-at-limit boundary
+      (`test_encode_at_limit_and_one_over`) plus server resilience: oversized
+      frames, garbage JSON bodies, and a multi-megabyte structurally-valid
+      `WORLD_STATE` are all rejected with `ERROR MALFORMED` (or dropped) and
+      the server keeps serving fresh clients.
+- [x] Config: `ui_dialogs` (bool, default True) plus the auto-reconnect keys
+      `auto_reconnect` (True), `reconnect_backoff_min` (2.0),
+      `reconnect_backoff_max` (30.0), all validated, applied on auto-connect
+      and `mp.autoconnect`, and toggled at runtime via `mp.ui` /
+      `mp.auto_reconnect`.
+- [x] Tests: server ghost hold/takeover + eviction (with a tiny
+      `ghost_ownership_ttl`), client reconnect restore and reclaim-after-
+      server-loss, auto-reconnect backoff + restore after a server restart
+      (engine reconnect-from-`DISCONNECTED` and the full client retry/reclaim),
+      travel-controller deferral/abort round-trip, offline UI fallback
+      semantics, config round-trips + validation, and the frame-size
+      resilience tests. Full suite: `python tests/run_tests.py` -> 155 tests.
+      Package rebuilt:
+      `client_mod/build_script_mod.py package` -> 44 entries, `.py`/`.pyo`
+      pairs only, no bytecode leaks.
+- [x] **Live-game discovery (necessarily game-side)**: the mod was installed
+      into a real game and did not connect. The game's `lastException`
+      revealed `ModuleNotFoundError: No module named 'asyncio'`
+      (`engine.py:14`) - the game's bundled CPython 3.7 ships **no asyncio**.
+      The client engine was rewritten from an asyncio event loop to a
+      background daemon thread owning a raw blocking `socket` (`select`-driven
+      read loop, heartbeats, threadsafe send/drain), keeping the same public
+      API. `framing.FrameDecoder` added (incremental sync decode for the
+      threaded client; the server's asyncio `read_frame` is unchanged). The
+      `uuid` dependency was replaced with `random`-based ids and the engine's
+      `logging` import is guarded (the game ships `sims4.log`, not stdlib
+      logging). All 155 offline tests still pass against the threaded engine,
+      and a live-end-to-end drop -> auto-reconnect (with backoff) -> reclaim
+      round-trip is confirmed over a real TCP server.
+- [x] **Live-game discovery (necessarily game-side) II**: `find_config_file`
+      treated an explicit missing path as "fall through to the game-directory
+      search"; once a real `Mods/Sims4Multiplayer.json` existed, that fallback
+      returned the game config for a missing explicit path. An explicit path
+      is now authoritative (no silent fallback).
+- [ ] Remaining game-side verification (can only be done in-game): the
+      `UiDialogNotification` toast and the `UiDialogOkCancel` travel invite
+      rendering, plus object/interaction samplers (see open questions). Offline
+      tests lock the fallback/wiring; the dialog overlay itself needs a real
+      running game to confirm.
+
+## M7 - Live sim replication hooks (DONE)
+
+Resolves the M4/M5 sample-hook gaps for the sim case. Unit + integration tests
+are locked offline; the live-data result still needs one in-game confirmation
+(see Remaining verification).
+
+- [x] **Real `sample_world_objects()`**: samples the player's active sim
+      (`services.active_sim_info()` -> `get_sim_instance()`) and emits one
+      entry `{"key": "sim:<sim_info.id>", "fields": {...}}` where fields carry
+      `x/y/z` position, `qw/qx/qy/qz` orientation, and `def` (definition id).
+      Reads go through the public `obj.location.transform.translation`
+      / `.orientation` accessors. Returns `[]` offline and before a household
+      loads. The sim's persistent `sim_info.id` gives a cross-session stable
+      key, answering the M4 identity open question for sims.
+- [x] **Real `sample_interactions()`**: emits
+      `{"key": "sim:<id>", "interaction": "<ClassName>"}` for the active sim's
+      currently-playing interaction (plus queued ones, capped at 3, deduped by
+      class). Uses public `sim.get_currently_playing_interaction()` and the
+      iterable `sim.queue`. Returns `[]` offline.
+- [x] **Auto-claim in the world tick**: `_maybe_send_world_update` now claims
+      sampled keys this client does not yet own (one in-flight claim per key,
+      cleared on `OBJECT_CLAIM_ACK`/`OBJECT_OWNERSHIP`), so the active sim's
+      position streams to the room automatically without `mp.claim`. Compose
+      with the M6 ghost/resume and reclaim paths (re-claim on reconnect).
+- [x] Tests: a two-client integration test (fake sampler -> auto-claim ->
+      exactly one claim on the wire -> peer merges the pushed delta), and
+      offline game-hook tests (samplers return `[]`; `_vec3`/`_quat`/
+      `_sim_world_entry` field mapping). Full suite:
+      `python tests/run_tests.py` -> 162 tests.
+- [ ] Remaining game-side verification (can only be done in-game): confirm in
+      a running zone that `active_sim_info()`/`get_sim_instance()`/
+      `location.transform` and `get_currently_playing_interaction()` behave as
+      documented and that positions stream between two connected clients.
+- [ ] Accepted v1 limitations (documented in `docs/sims4-research.md`): only
+      the active sim is replicated (household members, non-sim objects, and
+      furniture-level interaction conflict keys are future work); remote
+      entries are mirrored but no local avatar is spawned/moved yet.
+
+## M8 - Receive-side sim rendering (DONE)
+
+The counterpart of M7: remote sim positions are now applied to the local
+game, so a peer's sim moves on your screen when both clients share the same
+save (the sim exists in each local game with the same persistent id).
+
+- [x] **`game_hooks.apply_world_updates(entries)`**: parses `sim:<id>` keys,
+      resolves the local `SimInfo` via `services.sim_info_manager().get(id)`,
+      takes its live instance via `get_sim_instance()`, and moves it by
+      setting `sim.location = Location(Transform(Vector3(pos), Quaternion(ori)),
+      SurfaceIdentifier(zone_id, 0, SURFACETYPE_WORLD))`. Skips non-sim keys,
+      unknown sims, un-instanced sims, missing/unchanged positions (epsilon
+      < 0.05 units), and never raises. Returns the count moved (0 offline).
+- [x] **Client wiring** (`connectivity.py`): `set_world_applier(applier)` +
+      `_notify_remote_world()` calls the applier on the game thread right
+      after every `WORLD_STATE`/`WORLD_DELTA`, handing it only entries whose
+      mirror owner is another player (never the client's own driven sim).
+      `install_presence_sampler()` now installs `apply_world_updates`.
+- [x] Tests: offline applier returns 0 / helper parsing (`_sim_id_from_key`,
+      `_position_from_fields`, `_orientation_from_fields`), and a two-client
+      integration test (Alice claims+updates `sim:77`; Bob's applier receives
+      it with owner=Alice; Alice's applier is never called with her own key).
+      Full suite: `python tests/run_tests.py` -> 164 tests.
+- [ ] Remaining game-side verification (can only be done in-game): confirm
+      `sim.location = Location(Transform(...), surface)` moves an instanced
+      sim as expected at current patch level, and that two clients sharing a
+      save see each other's sim controller move on the lot.
+- [ ] Accepted v1 limitations: a sim driven by a remote peer can still be
+      moved by the local game's own autonomy between sync ticks (the next
+      delta re-snaps it); household members are still not replicated; the
+      interaction mirror remains read-only presence (no scripting of the
+      remote sim's behavior); no anti-fight control-handed-over UI.
+
+## M9 - Automated control, no user setup (DONE)
+
+No explicit control wiring: every player plays normally — click any sim,
+use whatever the pie menu offers, and the sync system figures out who drives
+what automatically.
+
+- [x] **Household-wide sampling, automatic**: `sample_world_objects`/
+      `sample_interactions` iterate the whole playable household
+      (`services.active_sim_info().household.sim_infos`), so a client pushes
+      every instanced household sim it owns with no commands at all. Falls
+      back to the active sim alone when no household exists.
+- [x] **`mp.control` removed**: the manual sim-selection command and its
+      `client.control_sim_ids` field are gone. Control is purely implicit —
+      click a sim, do the on-screen actions, and claims/releases happen by
+      themselves on the world tick.
+- [x] **Claim arbitration on the wire**: the server attaches `ref=<key>` to
+      `OBJECT_LOCKED` errors (both claim and update paths). The client
+      discards that key's in-flight guard and backs off 30s (no claim ping
+      spam) on every lock, and clears the backoff the instant an `OBJECT_OWNERSHIP
+      owner=null` broadcast shows the key is free again - so a player takes
+      over a sim ~one tick after its previous controller releases/disconnects.
+- [x] Tests: `ERROR OBJECT_LOCKED` carries `ref`, client deny-backoff state on
+      lock, in-flight cleared, and the backoff cleared on release. Full suite:
+      `python tests/run_tests.py` -> 164 tests.
+- [ ] Remaining game-side verification (can only be done in-game): the
+      household iteration (`.household.sim_infos` + per-sim instances) and a
+      two-client household split in a real shared save.
+- [ ] Accepted v1 limitations: claim arbitration is first-come-first-served
+      (the sim a player actively clicks is claimed a tick later, but a
+      simultaneous click by both players resolves to whichever client claimed
+      first); a multi-active-sim session still fights local autonomy on
+      non-driven sims (the loser's copy snaps back each tick).
+
+## M10 - Interaction execution on remote sims (DONE)
+
+The label-only interaction mirror is now also an *executor*: when another
+player's sim is doing something, the local copy of that sim runs the same
+super-interaction, so the mirrored sim visually performs the action instead
+of only wearing a label.
+
+- [x] **Affordance identity on the wire**: the interaction sampler now emits
+      `{"key", "interaction", "affordance", "affordance_id", "target"}` when
+      it can resolve them (guarded helpers that never raise). `affordance_id`
+      is the tuning guid64 of the super affordance the player clicked, the
+      durable identity the receiving client needs; `target` is the aim
+      `sim:<id>` when the interaction points at another sim (self/object
+      targets are omitted - only sims are replicated).
+- [x] **Protocol + server passthrough**: `INTERACTION_REQUEST`/`START` and
+      `INTERACTION_STATE` entries may carry `affordance_id` (int),
+      `affordance` (str), and `target` (str); all optional and type-validated.
+      The server stores and echoes them unchanged (FCFS reservation logic is
+      untouched), so room snapshots for late joiners keep the hints.
+- [x] **Client mirror**: `InteractionMirror.apply_start`/`apply_full` persist
+      the three hint fields; `application` of `INTERACTION_START`/`STATE`
+      routes remote-owned entries to a pluggable interaction applier
+      (`set_interaction_applier`) on the game thread - never this client's
+      own driven sims, and with the affordance/aim data intact.
+- [x] **`game_hooks.apply_interactions(entries)`** (receive-side executor):
+      resolves the local sim by persistent id, resolves the super affordance
+      by tuning id (falling back to name), skips sims already running that
+      affordance, aims at the mirrored target sim when present, and pushes via
+      `sim.queue.push_interaction` / `sim.push_super_affordance`. Every step is
+      guarded and degrades to label-only mirroring (returns 0 offline).
+- [x] Reconnect path: `_capture_dropped_state`/`_maybe_reclaim` now carry the
+      affordance/aim hints so a re-proposed interaction after a drop restores
+      the full identity.
+- [x] Tests: protocol builders + validation for the new fields (positive and
+      negative), server FCFS passthrough incl. the late-joiner snapshot,
+      client mirror persistence, interaction-applier wiring (Bob's applier
+      receives Alice's interaction with hints; Alice's applier never gets her
+      own entry), online sampler reconcile, offline no-ops. Full suite:
+      `python tests/run_tests.py` -> 169 tests.
+- [ ] Remaining game-side verification (can only be done in-game): that
+      `get_affordance()`/`affordance_id` resolve as documented on a real
+      running interaction, that `sim.queue.push_interaction` (or
+      `push_super_affordance` fallback) starts the interaction on a mirrored
+      sim, and that the pushed interaction does not re-fire its own sampler
+      loop (the FCFS mirror already dedupes, but an in-game check is needed).
+- [ ] Accepted v1 limitations: interaction execution is a best-effort *push* -
+      the receiving sim starts the affordance when it resolves and the sim is
+      free; it does not replicate interaction progress, skill outcomes, or
+      object-targeted actions (objects are not replicated). Result anims and
+      socials between two household sims on a shared lot are the primary
+      target.
+- [ ] Interaction args (`{"book": ...}` etc.) are carried on the wire but not
+  consumed by the executor yet.
+
+## M11 - Save sync, UI and dev tooling (DONE)
+
+- [x] SAVE_PUSH/SAVE_ACK protocol extension: `MAX_SAVE_CHUNK_BYTES=512 KiB`,
+  bare-filename slot rule, seq/total/size/base64 validation, `SAVE_ACK`
+  `reached>=0`, `origin` stamped by server, saved in validation INT_FIELDS.
+- [x] Server: `_handle_save_push` relay to room peers (excludes sender) +
+  `SAVE_ACK` with `reached=len(peers)` + `--status-file` JSON snapshot rewritten
+  every 1s (atomic `os.replace`; writes on stop).
+- [x] Client: `state/save_transfer.py` (`SaveInbox` reassembly with 600s prune
+  window; `atomic_write` via temp+fsync+os.replace; `split_bytes` raw slices);
+  engine `send_save_push`; connectivity `push_save_chunk` / `push_save_file`
+  (raw-bytes splitting, fixes the earlier double-base64 encode bug) +
+  SAVE_PUSH/SAVE_ACK handlers in `_handle_message`.
+- [x] `game_hooks.receive_save`: `find_save_directory` scans candidate saves
+  folders and immediate profile subfolders (prefers a folder already holding
+  the slot; else scores by `*.save` count, ties go deepest), then writes via
+  `atomic_write`.
+- [x] Cheat commands: toast notifications on NET connect/disconnect, ROOM
+  join/leave, and SAVE received; `mp.save_status` (shows inbox summary + save
+  roots); `mp.save_push <path> [slot]` to push a local save from the game
+  console.
+- [x] `tools/save_sync.py`: standalone push client (HELLO → WELCOME → chunked
+  SAVE_PUSH → wait SAVE_ACK → exit 0 when `reached>=1`). Uses a background
+  `ThreadPoolExecutor` for the blocking `sendall` so the asyncio loop can
+  still drain replies (a blocking `sendall` on the event-loop thread deadlocks
+  via TCP buffer starvation).
+- [x] `tools/dev_console.py`: tkinter GUI (stdlib only) with server start/stop,
+  players list (from --status-file JSON), server log tail, Sync save button
+  (runs save_sync.py), Run offline tests, Launch game, Launch smoke player,
+  Build + deploy, and Show diag file (`Sims4Multiplayer-diag.txt`).
+- [x] Tests: `python tests/run_tests.py` → **194 tests OK** (was 169 at M10; +14
+  save-transfer + 11 protocol/server save-sync tests).
+- [ ] In-game: verify the alarm span fix (restart game → `mp.diag` → read
+  `Sims4Multiplayer-diag.txt` from the Mods folder → expect `span: real-time
+  0.5s built`, `alarm=armed last_tick=...`; live smoke M10 interaction mirror
+  test).
+- [ ] In-game: end-to-end save sync — push a save with `tools/save_sync.py`
+  while the game is connected; verify the game writes the slot to the correct
+  saves folder (checked via `mp.save_status`).
+- [ ] Accepted v1: save sync distributes raw save bytes; no delta sync, no
+  conflict resolution, no auto-trigger from the save menu (manual push via
+  `mp.save_push` or `tools/save_sync.py` only).
+
+## M12 - Shared time / clock gate (DONE)
+
+- [x] Protocol: `TIME_READY`, `TIME_SPEED`, `TIME_SYNC` messages with
+  required/optional fields; clock speed constants (`CLOCK_SPEED_PAUSED/NORMAL/2/3`);
+  validation (`speed` 0..3, `ticks >= 0`, missing-zone rejection).
+- [x] Server time gate: `Room.clock` stores desired speed + last requesting
+  player + ticks; `clock_gate_open`/`clock_snapshot`; disconnected players
+  stay as clock participants (gate holds the room PAUSED until every member
+  including ghosts has signalled ready); mid-session disconnect auto-pauses;
+  `HELLO`/`JOIN_ROOM` mark not-ready and re-sync; `TIME_SPEED` stores the
+  desired speed (last change wins) and `sync_clock` broadcasts
+  `TIME_SYNC` to the room; ghost eviction re-opens gate and re-syncs.
+- [x] Client: `game_hooks` `get_clock_speed` / `set_clock_speed` /
+  `pause_game` / `unpause_game` (uses `ClockSpeedMode`); `connectivity`
+  TIME_SYNC handler with echo-window suppression, `_apply_room_speed` +
+  `_maybe_sync_clock` poller (sends TIME_READY once per connection when
+  zone running, reset on every WELCOME); `engine` `send_time_ready` /
+  `send_time_speed`.
+- [x] Cheats: `mp.time` (print current speed), `mp.pause` (0),
+  `mp.resume` (1), `mp.speed N` (2/3), `mp.ready`; `_mp_diag` now
+  calls `_maybe_init()` and prints `time=` line; auto-connect alarm
+  delay reduced to 2 s so `mp.diag` works on launch without a prior
+  command.
+- [x] Dev console: dark flat theme with a left sidebar (Host / Players /
+  Tests & Build / Log). The Host page shows the save-slot cards at full
+  180x120 with the baked color thumbnail (JPEG read off the `.save` head
+  and decoded to PNG via Windows GDI+, cached; the baked grayscale PNG is
+  the fallback) plus editable persisted slot labels, then only IP/port and
+  a single Host/Stop toggle. Players page lists rooms + the per-room
+  clock gate (speed / ready counts). Log page tails `server.log` and all
+  tool output with append-only diffs; auto-read of the game diag file for
+  3 minutes after launching the game. The true in-game slot name is left
+  out of scope: it lives inside the LZ4-compressed DBPF index
+  (SaveGameData protobuf), so slots show `Slot_<id>` + a user label for now.
+- [x] Tests: `python tests/run_tests.py` -> **209 tests OK** (was 194
+  at M11; +15 time-sync: validation, server gate flows, client handler
+  unit tests).
+- [ ] In-game: end-to-end verify — host + smoke player both join, host
+  `mp.pause` / `mp.resume` / `mp.speed 2`; smoke player auto-readies
+  via the alarm tick; confirm the room broadcasts match the expected
+  gate → open → stored speed flow.
+
+## Out of scope until explicit decision
+
+- Full DNA/lot/room package sharing (needs a large asset protocol and
+  licensing review).
+- Anti-cheat.
+- Non-Python (native) server components.
+
+Each proposed milestone must re-check `docs/sims4-research.md` for the game
+APIs involved (especially zone/clock/object interactions) and confirm no
+part of the design depends on code from S4MP/SimSync.

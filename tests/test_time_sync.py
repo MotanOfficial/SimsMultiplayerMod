@@ -1,0 +1,317 @@
+import asyncio
+import json
+import os
+import tempfile
+import unittest
+from unittest import mock
+
+from simmp import messages as msg
+from simmp.constants import PROTOCOL_VERSION
+from simmp.validation import ProtocolError, validate_message
+from simmp_client.connectivity import MultiplayerClient
+from server.networking.server import MPServer
+from tests.test_server import FakeClient
+
+
+class TimeValidationTests(unittest.TestCase):
+    def assert_protocol_error(self, message, code):
+        with self.assertRaises(ProtocolError) as catch:
+            validate_message(message)
+        self.assertEqual(catch.exception.code, code)
+
+    def test_time_messages_pass_validation(self):
+        for message in [
+            msg.make_time_sync(0),
+            msg.make_time_sync(1, ticks=1234),
+            msg.make_time_sync(3, ticks=5, player_id=7),
+            msg.make_time_ready(42),
+            msg.make_time_speed(2),
+            msg.make_time_speed(0, ticks=99),
+            msg.make_time_speed(3, player_id=4),
+        ]:
+            result = validate_message(message)
+            self.assertIs(result, message)
+
+    def test_time_sync_speed_range(self):
+        for bad in (4, -1, True, "1", 1.5):
+            message = msg.make_time_sync(1)
+            message["payload"]["speed"] = bad
+            self.assert_protocol_error(message, "MALFORMED")
+
+    def test_time_speed_speed_range(self):
+        for bad in (5, -2, True, "0"):
+            message = msg.make_time_speed(1)
+            message["payload"]["speed"] = bad
+            self.assert_protocol_error(message, "MALFORMED")
+
+    def test_time_sync_ticks_negative_rejected(self):
+        message = {
+            "version": PROTOCOL_VERSION,
+            "type": "TIME_SYNC",
+            "request_id": "r",
+            "payload": {"speed": 1, "ticks": -1},
+        }
+        self.assert_protocol_error(message, "MALFORMED")
+
+    def test_time_ready_missing_zone_rejected(self):
+        message = msg.make_time_ready(1)
+        del message["payload"]["zone_id"]
+        self.assert_protocol_error(message, "MALFORMED")
+
+
+class TimeServerFlowTests(unittest.TestCase):
+    def run_flow(self, coro):
+        asyncio.run(coro)
+
+    @staticmethod
+    async def _hello(port, name, client_id=None):
+        client = await FakeClient.connect(port, name)
+        await client.send(msg.make_hello(name, "t", client_id=client_id))
+        await client.wait_for_type("WELCOME")
+        await client.wait_for_type("ROOM_STATE")
+        return client
+
+    async def _sync(self, client, timeout=5.0):
+        return await client.wait_for_type("TIME_SYNC", timeout=timeout)
+
+    async def _last_sync(self, client, settle=0.2, timeout=5.0):
+        """Consume all pending TIME_SYNC frames and return the last one.
+
+        The room clock broadcasts to the whole room on every transition, so a
+        client outstanding multiple TIME_SYNCs (e.g. a stale PAUSED followed
+        by RUN). This waits until `settle` seconds of silence and returns the
+        authoritative final state.
+        """
+        last = None
+        deadline = asyncio.get_running_loop().time() + timeout
+        while True:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                frame = await asyncio.wait_for(
+                    client.wait_for_type("TIME_SYNC"), timeout=min(settle, remaining)
+                )
+            except asyncio.TimeoutError:
+                break
+            last = frame
+        if last is None:
+            raise RuntimeError("no TIME_SYNC received")
+        return last
+
+    def test_joining_client_is_paused_until_everyone_ready(self):
+        async def flow(server, port):
+            alice = await self._hello(port, "Alice")
+            sync = await self._last_sync(alice)
+            self.assertEqual(sync["payload"]["speed"], 0, "lone client still gated")
+
+            bob = await self._hello(port, "Bob")
+            sync = await self._last_sync(bob)
+            self.assertEqual(sync["payload"]["speed"], 0, "new client must join paused")
+            sync = await self._last_sync(alice)
+            self.assertEqual(sync["payload"]["speed"], 0, "Alice saw gate close for Bob")
+
+            await alice.send(msg.make_time_ready(100))
+            sync = await self._last_sync(alice)
+            self.assertEqual(sync["payload"]["speed"], 0, "still gated: Bob not ready")
+            sync = await self._last_sync(bob)
+            self.assertEqual(sync["payload"]["speed"], 0)
+
+            await bob.send(msg.make_time_ready(100))
+            a_sync = await self._last_sync(alice)
+            b_sync = await self._last_sync(bob)
+            self.assertEqual(a_sync["payload"]["speed"], 1, "gate opened: default normal")
+            self.assertEqual(b_sync["payload"]["speed"], 1)
+
+            await alice.close()
+            await bob.close()
+
+        self.run_flow(_time_server(flow))
+
+    def test_gated_speed_change_is_stored_then_applied(self):
+        async def flow(server, port):
+            alice = await self._hello(port, "Alice")
+            await self._last_sync(alice)
+            bob = await self._hello(port, "Bob")
+            await self._last_sync(bob)
+            await self._last_sync(alice)
+
+            # Alice is ready; Bob has not readied yet: the gate is closed.
+            await alice.send(msg.make_time_ready(100))
+            await self._last_sync(alice)
+            await self._last_sync(bob)
+
+            # Alice wants fast speed but Bob is not ready: the server keeps
+            # broadcasting PAUSED and stores the desire for when the gate opens.
+            await alice.send(msg.make_time_speed(3))
+            a_sync = await self._last_sync(alice)
+            self.assertEqual(a_sync["payload"]["speed"], 0, "gate still closed")
+            self.assertEqual(server.session.get_room("lobby").clock["desired"], 3)
+            self.assertEqual(server.session.get_room("lobby").clock["by_player"], 1000)
+
+            await bob.send(msg.make_time_ready(100))
+            b_sync = await self._last_sync(bob)
+            self.assertEqual(b_sync["payload"]["speed"], 3, "stored speed applied on gate open")
+            a_sync = await self._last_sync(alice)
+            self.assertEqual(a_sync["payload"]["speed"], 3)
+
+            await alice.close()
+            await bob.close()
+
+        self.run_flow(_time_server(flow))
+
+    def test_disconnect_auto_pauses_and_stored_speed_resumes(self):
+        async def flow(server, port):
+            alice = await self._hello(port, "Alice")
+            await self._last_sync(alice)
+            bob = await self._hello(port, "Bob", client_id="BOB-STABLE")
+            await self._last_sync(bob)
+            await self._last_sync(alice)
+
+            await alice.send(msg.make_time_ready(100))
+            await self._last_sync(alice)
+            await bob.send(msg.make_time_ready(100))
+            await self._last_sync(alice)
+            await self._last_sync(bob)
+
+            # Alice sets fast speed; server relays it to the whole room.
+            await alice.send(msg.make_time_speed(2))
+            a_sync = await self._last_sync(alice)
+            b_sync = await self._last_sync(bob)
+            self.assertEqual(a_sync["payload"]["speed"], 2)
+            self.assertEqual(b_sync["payload"]["speed"], 2)
+            self.assertEqual(a_sync["payload"]["player_id"], b_sync["payload"]["player_id"])
+            self.assertIsNotNone(a_sync["payload"]["player_id"])
+
+            # Bob disconnects mid-session: the room auto-pauses for Alice.
+            await bob.close()
+            a_sync = await self._last_sync(alice)
+            self.assertEqual(a_sync["payload"]["speed"], 0, "disconnect auto-pauses the room")
+
+            # When Bob rejoins and readies, the room resumes at the stored speed.
+            bob2 = await FakeClient.connect(port, "Bob")
+            await bob2.send(msg.make_hello("Bob", "t", client_id="BOB-STABLE"))
+            await bob2.wait_for_type("WELCOME")
+            await bob2.wait_for_type("ROOM_STATE")
+            b_sync = await self._last_sync(bob2)
+            self.assertEqual(b_sync["payload"]["speed"], 0, "rejoin still gated")
+            a_sync = await self._last_sync(alice)
+            self.assertEqual(a_sync["payload"]["speed"], 0)
+
+            await bob2.send(msg.make_time_ready(100))
+            a_sync = await self._last_sync(alice)
+            b_sync = await self._last_sync(bob2)
+            self.assertEqual(a_sync["payload"]["speed"], 2, "resumed at stored speed")
+            self.assertEqual(b_sync["payload"]["speed"], 2)
+
+            await alice.close()
+            await bob2.close()
+
+        self.run_flow(_time_server(flow))
+
+    def test_status_file_includes_clock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            status_file = os.path.join(directory, "status.json")
+            server = MPServer("127.0.0.1", 0, status_file=status_file)
+
+            async def flow(server, port):
+                alice = await self._hello(port, "Alice")
+                await self._last_sync(alice)
+                await alice.send(msg.make_time_speed(2))
+                await self._last_sync(alice)
+                server._write_status()
+                with open(status_file, encoding="utf-8") as handle:
+                    payload = json.load(handle)
+                clock = payload["rooms"][0].get("clock")
+                self.assertIsNotNone(clock)
+                self.assertEqual(clock["desired"], 2)
+                self.assertEqual(clock["speed"], 0, "gated while not ready: speed forced to 0")
+                self.assertTrue(clock["gate"])
+
+                await alice.close()
+
+            self.run_flow(_time_server(flow, server))
+
+    def test_session_clock_state_flags(self):
+        async def flow(server, port):
+            alice = await self._hello(port, "Alice")
+            await self._last_sync(alice)
+            self.assertFalse(server.session.clock_gate_open("lobby"))
+            self.assertTrue(server.session.clock_snapshot("lobby")["gate"])
+
+            await alice.send(msg.make_time_ready(100))
+            sync = await self._last_sync(alice)
+            self.assertEqual(sync["payload"]["speed"], 1)
+            self.assertTrue(server.session.clock_gate_open("lobby"))
+            snapshot = server.session.clock_snapshot("lobby")
+            self.assertFalse(snapshot["gate"])
+            self.assertEqual(snapshot["ready"], [1000], "Alice is player 1000")
+
+            await alice.close()
+
+        self.run_flow(_time_server(flow))
+
+
+class TimeClientHandlerTests(unittest.TestCase):
+    def test_time_sync_opens_gate_and_applies_speed(self):
+        client = MultiplayerClient(client_name="Alice")
+        with mock.patch("simmp_client.connectivity.game_hooks.set_clock_speed", return_value=1) as setter:
+            client._handle_message(msg.make_time_sync(1, ticks=42))
+        self.assertFalse(client.time_gate)
+        self.assertEqual(client.time_speed, 1)
+        setter.assert_called_once_with(1)
+
+    def test_time_sync_closes_gate_and_pauses(self):
+        client = MultiplayerClient(client_name="Alice")
+        client.time_gate = False
+        client.time_speed = 1
+        with mock.patch("simmp_client.connectivity.game_hooks.set_clock_speed", return_value=0) as setter:
+            client._handle_message(msg.make_time_sync(0))
+        self.assertTrue(client.time_gate)
+        self.assertEqual(client.time_speed, 0)
+        setter.assert_called_once_with(0)
+
+    def test_echo_window_suppresses_apply_but_updates_state(self):
+        client = MultiplayerClient(client_name="Alice")
+        client._clock_echo_until = time_far_future()
+        with mock.patch("simmp_client.connectivity.game_hooks.set_clock_speed") as setter:
+            client._handle_message(msg.make_time_sync(2))
+        self.assertEqual(client.time_speed, 2)
+        self.assertFalse(client.time_gate)
+        setter.assert_not_called()
+
+    def test_clock_apply_disabled_keeps_state_but_no_apply(self):
+        client = MultiplayerClient(client_name="Alice")
+        client.set_clock_apply_enabled(False)
+        with mock.patch("simmp_client.connectivity.game_hooks.set_clock_speed") as setter:
+            client._handle_message(msg.make_time_sync(2))
+        self.assertEqual(client.time_speed, 2)
+        setter.assert_not_called()
+
+    def test_welcome_resets_ready_flag(self):
+        client = MultiplayerClient(client_name="Alice")
+        client.time_ready_sent = True
+        client.time_gate = False
+        client._handle_message(msg.make_welcome(1, "lobby", 1.0))
+        self.assertFalse(client.time_ready_sent)
+        self.assertTrue(client.time_gate)
+
+
+def time_far_future():
+    import time
+
+    return time.time() + 999999
+
+
+async def _time_server(flow, server=None):
+    if server is None:
+        server = MPServer("127.0.0.1", 0)
+    await server.start()
+    try:
+        await flow(server, server.port)
+    finally:
+        await server.stop()
+
+
+if __name__ == "__main__":
+    unittest.main()

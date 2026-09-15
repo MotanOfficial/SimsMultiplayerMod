@@ -1,0 +1,1 @@
+from simmp_client.commands import cheat_commands  # noqa: F401

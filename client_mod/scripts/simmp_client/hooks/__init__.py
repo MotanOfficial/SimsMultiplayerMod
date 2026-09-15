@@ -1,0 +1,1 @@
+from simmp_client.hooks import game_hooks  # noqa: F401

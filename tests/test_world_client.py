@@ -1,0 +1,244 @@
+import asyncio
+import time
+import unittest
+
+from simmp_client.connectivity import MultiplayerClient
+from server.networking.server import MPServer
+from tests.test_client_engine import _wait_until
+
+
+async def _with_server(callback):
+    server = MPServer("127.0.0.1", 0)
+    await server.start()
+    try:
+        await callback(server, server.port)
+    finally:
+        await server.stop()
+
+
+class WorldClientTests(unittest.TestCase):
+    def run_flow(self, coro):
+        asyncio.run(coro)
+
+    @staticmethod
+    async def _connected(client):
+        return await _wait_until(
+            lambda: (client.process_incoming() or True) and client.session.player_id is not None,
+            timeout=5.0,
+        )
+
+    def test_claim_delta_and_mirror(self):
+        async def flow(server, port):
+            alice = MultiplayerClient(client_name="Alice")
+            bob = MultiplayerClient(client_name="Bob")
+            try:
+                self.assertTrue(alice.connect("127.0.0.1", port))
+                self.assertTrue(bob.connect("127.0.0.1", port))
+                self.assertTrue(await self._connected(alice))
+                self.assertTrue(await self._connected(bob))
+
+                alice_pid = alice.session.player_id
+
+                # Alice claims the sofa; her OWNERSHIP_ACK lands in the mirror.
+                self.assertTrue(alice.claim_object("sofa"))
+                self.assertTrue(await _wait_until(
+                    lambda: (alice.process_incoming() or True)
+                    and alice.session.world.get("sofa") is not None
+                    and alice.session.world.get("sofa").owner == alice_pid,
+                    timeout=5.0,
+                ), "Alice never reflected her own claim")
+
+                # Bob reflects the broadcast OBJECT_OWNERSHIP.
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and bob.session.world.get("sofa") is not None
+                    and bob.session.world.get("sofa").owner == alice_pid,
+                    timeout=5.0,
+                ), "Bob never saw the ownership broadcast")
+
+                # Alice pushes a position delta; Bob's mirror merges it.
+                self.assertTrue(alice.update_object("sofa", {"x": 1.0, "y": 2.0, "z": 3.0}))
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and bob.session.world.get("sofa").fields.get("x") == 1.0,
+                    timeout=5.0,
+                ), "Bob never merged the WORLD_DELTA")
+
+                # Bob's world has exactly the sofa at seq >= 1.
+                self.assertEqual(bob.session.world.count(), 1)
+                self.assertGreaterEqual(bob.session.world.last_seq, 1)
+            finally:
+                alice.disconnect()
+                bob.disconnect()
+
+        self.run_flow(_with_server(flow))
+
+    def test_second_claim_locked_and_unclaimed_update_rejected(self):
+        async def flow(server, port):
+            alice = MultiplayerClient(client_name="Alice")
+            bob_log = []
+            bob = MultiplayerClient(client_name="Bob", notify=bob_log.append)
+            try:
+                self.assertTrue(alice.connect("127.0.0.1", port))
+                self.assertTrue(bob.connect("127.0.0.1", port))
+                self.assertTrue(await self._connected(alice))
+                self.assertTrue(await self._connected(bob))
+
+                self.assertTrue(alice.claim_object("sofa"))
+                self.assertTrue(await _wait_until(
+                    lambda: (alice.process_incoming() or True)
+                    and alice.session.world.get("sofa") is not None,
+                    timeout=5.0,
+                ))
+
+                # Bob cannot claim a locked object: server replies ERROR.
+                self.assertTrue(bob.claim_object("sofa"))
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and any("OBJECT_LOCKED" in line for line in bob_log),
+                    timeout=5.0,
+                ), "Bob never saw the OBJECT_LOCKED error")
+
+                # The deny bookkeeping clears Bob's in-flight guard and backs
+                # him off so he does not ping the server every world tick.
+                self.assertNotIn("sofa", bob._claimed_in_flight)
+                self.assertGreater(bob._claim_denied_until.get("sofa", 0), time.time())
+
+                # Once Alice releases, the owner-null broadcast re-enables Bob
+                # to claim it on a later world tick.
+                self.assertTrue(alice.release_object("sofa"))
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and bob._claim_denied_until.get("sofa", None) is None,
+                    timeout=5.0,
+                ), "Bob's claim backoff was never cleared on release")
+
+                # Updating an object that was never claimed is rejected too.
+                self.assertTrue(bob.update_object("table", {"x": 0.0}))
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and any("OBJECT_NOT_FOUND" in line for line in bob_log),
+                    timeout=5.0,
+                ), "Bob never saw the OBJECT_NOT_FOUND error")
+            finally:
+                alice.disconnect()
+                bob.disconnect()
+
+        self.run_flow(_with_server(flow))
+
+    def test_auto_claim_and_push_with_sampler(self):
+        """The world tick claims unowned sampled keys, then pushes deltas."""
+        async def flow(server, port):
+            alice_log = []
+            alice = MultiplayerClient(client_name="Alice", notify=alice_log.append)
+            bob = MultiplayerClient(client_name="Bob")
+            try:
+                self.assertTrue(alice.connect("127.0.0.1", port))
+                self.assertTrue(bob.connect("127.0.0.1", port))
+                self.assertTrue(await self._connected(alice))
+                self.assertTrue(await self._connected(bob))
+
+                alice_pid = alice.session.player_id
+                alice_log[:] = []
+
+                def fake_sampler():
+                    return [{"key": "sim:42", "fields": {"x": 1.0, "y": 0.0, "z": 2.0}}]
+
+                alice.set_world_sampler(fake_sampler)
+                alice.world_sync = True
+                alice.world_interval = 0.0
+
+                # First tick: the unowned key gets auto-claimed.
+                alice._maybe_send_world_update()
+                self.assertTrue(await _wait_until(
+                    lambda: (alice.process_incoming() or True)
+                    and alice.session.world.get("sim:42") is not None
+                    and alice.session.world.get("sim:42").owner == alice_pid,
+                    timeout=5.0,
+                ), "Alice never reflected her auto-claim")
+
+                # Exactly one claim request reaches the server; the ack clears
+                # the in-flight guard, so the mirror check alone prevents
+                # re-claiming on later ticks.
+                self.assertEqual(
+                    sum("Requested ownership" in line for line in alice_log), 1
+                )
+
+                # Second tick: ownership held, so fields are pushed to Bob.
+                alice._maybe_send_world_update()
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and bob.session.world.get("sim:42") is not None
+                    and bob.session.world.get("sim:42").fields.get("x") == 1.0,
+                    timeout=5.0,
+                ), "Bob never merged Alice's auto-synced world delta")
+
+                # A further tick still does not re-claim the owned key.
+                alice._maybe_send_world_update()
+                self.assertEqual(
+                    sum("Requested ownership" in line for line in alice_log), 1
+                )
+            finally:
+                alice.disconnect()
+                bob.disconnect()
+
+        self.run_flow(_with_server(flow))
+
+
+def test_remote_world_entries_reach_applier(self):
+        """The world applier gets remote-owned entries, never our own."""
+        async def flow(server, port):
+            alice_calls = []
+            bob_calls = []
+            alice = MultiplayerClient(client_name="Alice")
+            bob = MultiplayerClient(client_name="Bob", )
+            alice.set_world_applier(lambda entries: alice_calls.append(list(entries)))
+            bob.set_world_applier(lambda entries: bob_calls.append(list(entries)))
+            try:
+                self.assertTrue(alice.connect("127.0.0.1", port))
+                self.assertTrue(bob.connect("127.0.0.1", port))
+                self.assertTrue(await self._connected(alice))
+                self.assertTrue(await self._connected(bob))
+
+                alice_pid = alice.session.player_id
+                bob_pid = bob.session.player_id
+
+                # Alice claims and updates her sim; Bob's applier must receive
+                # the remote entry with Alice as owner.
+                self.assertTrue(alice.claim_object("sim:77"))
+                self.assertTrue(await _wait_until(
+                    lambda: (alice.process_incoming() or True)
+                    and alice.session.world.get("sim:77") is not None
+                    and alice.session.world.get("sim:77").owner == alice_pid,
+                    timeout=5.0,
+                ))
+                self.assertTrue(alice.update_object("sim:77", {"x": 5.0, "y": 6.0, "z": 7.0}))
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and any(
+                        any(entry["key"] == "sim:77" and entry["fields"].get("x") == 5.0
+                            for entry in call)
+                        for call in bob_calls
+                    ),
+                    timeout=5.0,
+                ), "Bob's applier never saw the remote sim entry")
+
+                # Bob's call recorded the owning player.
+                saw = next(call for call in bob_calls
+                           if any(entry["key"] == "sim:77" for entry in call))
+                entry = next(e for e in saw if e["key"] == "sim:77")
+                self.assertEqual(entry["fields"]["x"], 5.0)
+
+                # Alice's own claim/update never reached her applier.
+                self.assertFalse(
+                    any(any(e["key"] == "sim:77" for e in call) for call in alice_calls)
+                )
+            finally:
+                alice.disconnect()
+                bob.disconnect()
+
+        self.run_flow(_with_server(flow))
+
+
+if __name__ == "__main__":
+    unittest.main()

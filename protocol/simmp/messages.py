@@ -1,0 +1,303 @@
+"""Message builders for the simmp protocol.
+
+Every message created here is validated before it is returned, so protocol
+code can never emit a malformed message.
+"""
+
+import base64
+import os
+import time
+
+from simmp.constants import PROTOCOL_VERSION
+from simmp.validation import validate_message
+
+
+def request_id():
+    return os.urandom(16).hex()
+
+
+def build_message(msg_type, payload=None, request_id_value=None):
+    message = {
+        "version": PROTOCOL_VERSION,
+        "type": msg_type,
+        "request_id": request_id_value if request_id_value is not None else request_id(),
+        "payload": payload if payload is not None else {},
+    }
+    validate_message(message)
+    return message
+
+
+def make_hello(client_name, client_version, client_id=None):
+    payload = {
+        "client_name": client_name,
+        "client_version": client_version,
+        "protocol_version": PROTOCOL_VERSION,
+    }
+    if client_id is not None:
+        payload["client_id"] = client_id
+    return build_message("HELLO", payload)
+
+
+def make_welcome(player_id, room_id, server_time):
+    return build_message(
+        "WELCOME",
+        {
+            "player_id": player_id,
+            "protocol_version": PROTOCOL_VERSION,
+            "server_time": server_time,
+            "room_id": room_id,
+        },
+    )
+
+
+def make_ping(client_time=None):
+    return build_message("PING", {"client_time": client_time if client_time is not None else time.time()})
+
+
+def make_pong(client_time, server_time):
+    return build_message("PONG", {"client_time": client_time, "server_time": server_time})
+
+
+def make_join_room(room_id):
+    return build_message("JOIN_ROOM", {"room_id": room_id})
+
+
+def make_room_state(room_id, players):
+    return build_message("ROOM_STATE", {"room_id": room_id, "players": players})
+
+
+def make_player_joined(player_id, name, room_id):
+    return build_message("PLAYER_JOINED", {"player_id": player_id, "name": name, "room_id": room_id})
+
+
+def make_player_left(player_id, room_id, reason):
+    return build_message("PLAYER_LEFT", {"player_id": player_id, "room_id": room_id, "reason": reason})
+
+
+def make_event(event_type, data=None, seq=0, player_id=None):
+    payload = {"event_type": event_type, "data": data, "seq": seq}
+    if player_id is not None:
+        payload["player_id"] = player_id
+    return build_message("EVENT", payload)
+
+
+def make_event_ack(seq, room_id):
+    return build_message("EVENT_ACK", {"seq": seq, "room_id": room_id})
+
+
+def make_presence(zone_id, lot_id, timestamp=None, player_id=None, room_id=None):
+    payload = {
+        "zone_id": zone_id,
+        "lot_id": lot_id,
+        "timestamp": timestamp if timestamp is not None else time.time(),
+    }
+    if player_id is not None:
+        payload["player_id"] = player_id
+    if room_id is not None:
+        payload["room_id"] = room_id
+    return build_message("PRESENCE", payload)
+
+
+def make_travel_request(zone_id, request_id_value=None):
+    return build_message("TRAVEL_REQUEST", {"zone_id": zone_id}, request_id_value=request_id_value)
+
+
+def make_travel_invite(zone_id, requester_id, requester_name, request_id_value=None):
+    return build_message(
+        "TRAVEL_INVITE",
+        {
+            "zone_id": zone_id,
+            "requester_id": requester_id,
+            "requester_name": requester_name,
+        },
+        request_id_value=request_id_value,
+    )
+
+
+def make_travel_response(accepted, reason=None, request_id_value=None):
+    payload = {"accepted": accepted}
+    if reason is not None:
+        payload["reason"] = reason
+    return build_message("TRAVEL_RESPONSE", payload, request_id_value=request_id_value)
+
+
+def make_travel_begin(zone_id, request_id_value=None):
+    return build_message("TRAVEL_BEGIN", {"zone_id": zone_id}, request_id_value=request_id_value)
+
+
+def make_travel_ready(zone_id, request_id_value=None):
+    return build_message("TRAVEL_READY", {"zone_id": zone_id}, request_id_value=request_id_value)
+
+
+def make_travel_complete(zone_id, request_id_value=None):
+    return build_message("TRAVEL_COMPLETE", {"zone_id": zone_id}, request_id_value=request_id_value)
+
+
+def make_travel_abort(reason, request_id_value=None):
+    return build_message("TRAVEL_ABORT", {"reason": reason}, request_id_value=request_id_value)
+
+
+def make_clock_sync(zone_id, absolute_ticks, real_time, clock_speed, player_id=None):
+    payload = {
+        "zone_id": zone_id,
+        "absolute_ticks": absolute_ticks,
+        "real_time": real_time,
+        "clock_speed": clock_speed,
+    }
+    if player_id is not None:
+        payload["player_id"] = player_id
+    return build_message("CLOCK_SYNC", payload)
+
+
+def make_object_update(objects, player_id=None, room_id=None):
+    """`objects` is [{"key": str, "fields": {str: value}, "rev": int}]."""
+    payload = {"objects": objects}
+    if player_id is not None:
+        payload["player_id"] = player_id
+    if room_id is not None:
+        payload["room_id"] = room_id
+    return build_message("OBJECT_UPDATE", payload)
+
+
+def make_object_claim(key):
+    return build_message("OBJECT_CLAIM", {"key": key})
+
+
+def make_object_release(key):
+    return build_message("OBJECT_RELEASE", {"key": key})
+
+
+def make_world_state(room_id, objects):
+    return build_message("WORLD_STATE", {"room_id": room_id, "objects": objects})
+
+
+def make_world_delta(room_id, seq, updates, player_id=None):
+    """`updates` is [{"key": str, "fields": {str: value}}]."""
+    payload = {"room_id": room_id, "seq": seq, "updates": updates}
+    if player_id is not None:
+        payload["player_id"] = player_id
+    return build_message("WORLD_DELTA", payload)
+
+
+def make_object_ownership(room_id, key, owner, player_id=None):
+    """`owner` is a player_id (int) or None when an object is released."""
+    payload = {"room_id": room_id, "key": key, "owner": owner}
+    if player_id is not None:
+        payload["player_id"] = player_id
+    return build_message("OBJECT_OWNERSHIP", payload)
+
+
+def make_object_claim_ack(key, owner):
+    return build_message("OBJECT_CLAIM_ACK", {"key": key, "owner": owner})
+
+
+def make_interaction_request(object_key, interaction, args=None, affordance=None, affordance_id=None, target=None):
+    payload = {"object_key": object_key, "interaction": interaction}
+    if args is not None:
+        payload["args"] = args
+    if affordance is not None:
+        payload["affordance"] = affordance
+    if affordance_id is not None:
+        payload["affordance_id"] = affordance_id
+    if target is not None:
+        payload["target"] = target
+    return build_message("INTERACTION_REQUEST", payload)
+
+
+def make_interaction_end(object_key):
+    return build_message("INTERACTION_END", {"object_key": object_key})
+
+
+def make_interaction_start(room_id, object_key, interaction, player_id, started_at, args=None, affordance=None, affordance_id=None, target=None):
+    payload = {
+        "room_id": room_id,
+        "object_key": object_key,
+        "interaction": interaction,
+        "player_id": player_id,
+        "started_at": started_at,
+    }
+    if args is not None:
+        payload["args"] = args
+    if affordance is not None:
+        payload["affordance"] = affordance
+    if affordance_id is not None:
+        payload["affordance_id"] = affordance_id
+    if target is not None:
+        payload["target"] = target
+    return build_message("INTERACTION_START", payload)
+
+
+def make_interaction_free(room_id, object_key, cooldown_until):
+    return build_message("INTERACTION_FREE", {"room_id": room_id, "object_key": object_key, "cooldown_until": cooldown_until})
+
+
+def make_interaction_state(room_id, interactions):
+    """`interactions` is [{"object_key": str, "player_id": int, "interaction": str, "started_at": float}]."""
+    return build_message("INTERACTION_STATE", {"room_id": room_id, "interactions": interactions})
+
+
+def make_save_push(slot, seq, total, size, data, origin=None):
+    """Push one chunk of a shared save file.
+
+    `data` is one base64 chunk of `raw_bytes`; `total` is the chunk count,
+    `size` the overall file size and `seq` is 1..total. Reassembly happens on
+    the receiving client (`save_transfer.SaveInbox`). `origin` is stamped by
+    the server, never by the sender.
+    """
+    payload = {
+        "slot": slot,
+        "seq": seq,
+        "total": total,
+        "size": size,
+        "data": base64.b64encode(data).decode("ascii"),
+    }
+    if origin is not None:
+        payload["origin"] = origin
+    return build_message("SAVE_PUSH", payload)
+
+
+def make_save_ack(slot, ok, reached, message=None):
+    payload = {"slot": slot, "ok": bool(ok), "reached": reached}
+    if message is not None:
+        payload["message"] = message
+    return build_message("SAVE_ACK", payload)
+
+
+def make_time_sync(speed, ticks=None, player_id=None, gate=None):
+    """Authoritative room clock state (sent by the server to clients).
+
+    `speed` is a ClockSpeedMode int (0=paused..3). ``gate`` is an explicit
+    bool indicating whether the room is paused by the readiness gate.
+    Old servers that omit it cause the client to fall back to ``speed == 0``
+    inference. ``ticks`` is an optional game-time reference.
+    """
+    payload = {"speed": speed}
+    if ticks is not None:
+        payload["ticks"] = ticks
+    if player_id is not None:
+        payload["player_id"] = player_id
+    if gate is not None:
+        payload["gate"] = bool(gate)
+    return build_message("TIME_SYNC", payload)
+
+
+def make_time_ready(zone_id):
+    """Signal from a client that it is loaded in a zone and ready to play."""
+    return build_message("TIME_READY", {"zone_id": zone_id})
+
+
+def make_time_speed(speed, ticks=None, player_id=None):
+    """A client's desired clock speed (last change wins in the room)."""
+    payload = {"speed": speed}
+    if ticks is not None:
+        payload["ticks"] = ticks
+    if player_id is not None:
+        payload["player_id"] = player_id
+    return build_message("TIME_SPEED", payload)
+
+
+def make_error(code, message, ref=None):
+    payload = {"code": code, "message": message}
+    if ref is not None:
+        payload["ref"] = ref
+    return build_message("ERROR", payload)

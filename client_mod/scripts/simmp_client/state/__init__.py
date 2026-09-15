@@ -1,0 +1,1 @@
+from simmp_client.state.session import LocalSession  # noqa: F401
