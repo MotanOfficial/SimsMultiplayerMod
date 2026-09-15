@@ -149,41 +149,56 @@ def make_clock_sync(zone_id, absolute_ticks, real_time, clock_speed, player_id=N
     return build_message("CLOCK_SYNC", payload)
 
 
-def make_object_update(objects, player_id=None, room_id=None):
+def make_object_update(objects, player_id=None, room_id=None, zone_id=None):
     """`objects` is [{"key": str, "fields": {str: value}, "rev": int}]."""
     payload = {"objects": objects}
     if player_id is not None:
         payload["player_id"] = player_id
     if room_id is not None:
         payload["room_id"] = room_id
+    if zone_id is not None:
+        payload["zone_id"] = zone_id
     return build_message("OBJECT_UPDATE", payload)
 
 
-def make_object_claim(key):
-    return build_message("OBJECT_CLAIM", {"key": key})
+def make_object_claim(key, zone_id=None):
+    payload = {"key": key}
+    if zone_id is not None:
+        payload["zone_id"] = zone_id
+    return build_message("OBJECT_CLAIM", payload)
 
 
-def make_object_release(key):
-    return build_message("OBJECT_RELEASE", {"key": key})
+def make_object_release(key, zone_id=None):
+    payload = {"key": key}
+    if zone_id is not None:
+        payload["zone_id"] = zone_id
+    return build_message("OBJECT_RELEASE", payload)
 
 
-def make_world_state(room_id, objects):
-    return build_message("WORLD_STATE", {"room_id": room_id, "objects": objects})
+def make_world_state(room_id, objects, zone_id=None):
+    payload = {"room_id": room_id, "objects": objects}
+    if zone_id is not None:
+        payload["zone_id"] = zone_id
+    return build_message("WORLD_STATE", payload)
 
 
-def make_world_delta(room_id, seq, updates, player_id=None):
+def make_world_delta(room_id, seq, updates, player_id=None, zone_id=None):
     """`updates` is [{"key": str, "fields": {str: value}}]."""
     payload = {"room_id": room_id, "seq": seq, "updates": updates}
     if player_id is not None:
         payload["player_id"] = player_id
+    if zone_id is not None:
+        payload["zone_id"] = zone_id
     return build_message("WORLD_DELTA", payload)
 
 
-def make_object_ownership(room_id, key, owner, player_id=None):
+def make_object_ownership(room_id, key, owner, player_id=None, zone_id=None):
     """`owner` is a player_id (int) or None when an object is released."""
     payload = {"room_id": room_id, "key": key, "owner": owner}
     if player_id is not None:
         payload["player_id"] = player_id
+    if zone_id is not None:
+        payload["zone_id"] = zone_id
     return build_message("OBJECT_OWNERSHIP", payload)
 
 
@@ -191,7 +206,7 @@ def make_object_claim_ack(key, owner):
     return build_message("OBJECT_CLAIM_ACK", {"key": key, "owner": owner})
 
 
-def make_interaction_request(object_key, interaction, args=None, affordance=None, affordance_id=None, target=None):
+def make_interaction_request(object_key, interaction, args=None, affordance=None, affordance_id=None, target=None, zone_id=None):
     payload = {"object_key": object_key, "interaction": interaction}
     if args is not None:
         payload["args"] = args
@@ -201,14 +216,19 @@ def make_interaction_request(object_key, interaction, args=None, affordance=None
         payload["affordance_id"] = affordance_id
     if target is not None:
         payload["target"] = target
+    if zone_id is not None:
+        payload["zone_id"] = zone_id
     return build_message("INTERACTION_REQUEST", payload)
 
 
-def make_interaction_end(object_key):
-    return build_message("INTERACTION_END", {"object_key": object_key})
+def make_interaction_end(object_key, zone_id=None):
+    payload = {"object_key": object_key}
+    if zone_id is not None:
+        payload["zone_id"] = zone_id
+    return build_message("INTERACTION_END", payload)
 
 
-def make_interaction_start(room_id, object_key, interaction, player_id, started_at, args=None, affordance=None, affordance_id=None, target=None):
+def make_interaction_start(room_id, object_key, interaction, player_id, started_at, args=None, affordance=None, affordance_id=None, target=None, zone_id=None):
     payload = {
         "room_id": room_id,
         "object_key": object_key,
@@ -224,16 +244,24 @@ def make_interaction_start(room_id, object_key, interaction, player_id, started_
         payload["affordance_id"] = affordance_id
     if target is not None:
         payload["target"] = target
+    if zone_id is not None:
+        payload["zone_id"] = zone_id
     return build_message("INTERACTION_START", payload)
 
 
-def make_interaction_free(room_id, object_key, cooldown_until):
-    return build_message("INTERACTION_FREE", {"room_id": room_id, "object_key": object_key, "cooldown_until": cooldown_until})
+def make_interaction_free(room_id, object_key, cooldown_until, zone_id=None):
+    payload = {"room_id": room_id, "object_key": object_key, "cooldown_until": cooldown_until}
+    if zone_id is not None:
+        payload["zone_id"] = zone_id
+    return build_message("INTERACTION_FREE", payload)
 
 
-def make_interaction_state(room_id, interactions):
+def make_interaction_state(room_id, interactions, zone_id=None):
     """`interactions` is [{"object_key": str, "player_id": int, "interaction": str, "started_at": float}]."""
-    return build_message("INTERACTION_STATE", {"room_id": room_id, "interactions": interactions})
+    payload = {"room_id": room_id, "interactions": interactions}
+    if zone_id is not None:
+        payload["zone_id"] = zone_id
+    return build_message("INTERACTION_STATE", payload)
 
 
 def make_save_push(slot, seq, total, size, data, origin=None):

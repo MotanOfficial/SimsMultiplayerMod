@@ -42,6 +42,21 @@ class Handlers:
     def get(self, message_type):
         return self._handlers.get(message_type)
 
+    def _zone_of(self, conn, payload=None):
+        """The zone a sender's world write belongs to.
+
+        Prefers the zone stamped on the wire (client-tagged writes), falling
+        back to the server's own view (ready zone, else presence zone).
+        """
+        if payload is not None:
+            zone_id = payload.get("zone_id")
+            if zone_id is not None:
+                return zone_id
+        player = self._server.session.get_player(conn.player_id)
+        if player is None:
+            return None
+        return self._server.session.player_zone(player)
+
     async def _require_registered(self, conn, action):
         if conn.player_id is None:
             await conn.send(msg.make_error(ERR_NOT_REGISTERED, "send HELLO before %s" % action))
@@ -99,8 +114,23 @@ class Handlers:
 
         await conn.send(msg.make_welcome(player.player_id, room_id, time.time()))
         await conn.send(msg.make_room_state(room_id, room.as_dict()["players"]))
-        await conn.send(msg.make_world_state(room_id, server.session.get_world_objects(room_id)))
-        await conn.send(msg.make_interaction_state(room_id, server.session.get_room_interactions(room_id)))
+        zone_id = session.player_zone(player)
+        if zone_id is None:
+            zone_id = session.dominant_room_zone(room_id)
+        await conn.send(
+            msg.make_world_state(
+                room_id,
+                server.session.get_world_objects(room_id, zone_id),
+                zone_id=zone_id,
+            )
+        )
+        await conn.send(
+            msg.make_interaction_state(
+                room_id,
+                server.session.get_room_interactions(room_id, zone_id),
+                zone_id=zone_id,
+            )
+        )
         await server.broadcast_room(
             room_id,
             msg.make_player_joined(player.player_id, name, room_id),
@@ -268,8 +298,10 @@ class Handlers:
 
         server = self._server
         room_id = conn.room_id
-        key = frame["payload"]["key"]
-        ok, _, prev_owner = server.session.claim_object(room_id, key, conn.player_id)
+        payload = frame["payload"]
+        key = payload["key"]
+        zone_id = self._zone_of(conn, payload)
+        ok, _, prev_owner = server.session.claim_object(room_id, key, conn.player_id, zone_id)
         if not ok:
             await conn.send(
                 msg.make_error(
@@ -280,15 +312,17 @@ class Handlers:
             )
             return
         server.logger.info(
-            "[MP][SYNC] Player %s claimed object %r in room %s",
+            "[MP][SYNC] Player %s claimed object %r in room %s zone %s",
             conn.player_id,
             key,
             room_id,
+            zone_id,
         )
         await conn.send(msg.make_object_claim_ack(key, conn.player_id))
-        await server.broadcast_room(
+        await server.broadcast_zone(
             room_id,
-            msg.make_object_ownership(room_id, key, conn.player_id, player_id=conn.player_id),
+            zone_id,
+            msg.make_object_ownership(room_id, key, conn.player_id, player_id=conn.player_id, zone_id=zone_id),
             exclude={conn.player_id},
         )
 
@@ -298,19 +332,23 @@ class Handlers:
 
         server = self._server
         room_id = conn.room_id
-        key = frame["payload"]["key"]
-        released = server.session.release_object(room_id, key, conn.player_id)
+        payload = frame["payload"]
+        key = payload["key"]
+        zone_id = self._zone_of(conn, payload)
+        released = server.session.release_object(room_id, key, conn.player_id, zone_id)
         server.logger.info(
-            "[MP][SYNC] Player %s released object %r in room %s",
+            "[MP][SYNC] Player %s released object %r in room %s zone %s",
             conn.player_id,
             key,
             room_id,
+            zone_id,
         )
         await conn.send(msg.make_object_claim_ack(key, None))
         if released:
-            await server.broadcast_room(
+            await server.broadcast_zone(
                 room_id,
-                msg.make_object_ownership(room_id, key, None, player_id=conn.player_id),
+                zone_id,
+                msg.make_object_ownership(room_id, key, None, player_id=conn.player_id, zone_id=zone_id),
                 exclude={conn.player_id},
             )
 
@@ -321,9 +359,13 @@ class Handlers:
         server = self._server
         session = server.session
         room_id = conn.room_id
+        payload = frame["payload"]
+        zone_id = self._zone_of(conn, payload)
         deltas = []
-        for entry in frame["payload"]["objects"]:
-            status, detail = session.apply_world_update(room_id, entry["key"], entry["fields"], conn.player_id)
+        for entry in payload["objects"]:
+            status, detail = session.apply_world_update(
+                room_id, entry["key"], entry["fields"], conn.player_id, zone_id
+            )
             if status == "locked":
                 await conn.send(
                     msg.make_error(
@@ -345,17 +387,19 @@ class Handlers:
                 deltas.append({"key": entry["key"], "fields": detail})
 
         if deltas:
-            seq = session.next_world_seq(room_id)
+            seq = session.next_world_seq(room_id, zone_id)
             server.logger.info(
-                "[MP][SYNC] Player %s updated %s object(s) in room %s (world seq %s)",
+                "[MP][SYNC] Player %s updated %s object(s) in room %s zone %s (world seq %s)",
                 conn.player_id,
                 len(deltas),
                 room_id,
+                zone_id,
                 seq,
             )
-            await server.broadcast_room(
+            await server.broadcast_zone(
                 room_id,
-                msg.make_world_delta(room_id, seq, deltas, player_id=conn.player_id),
+                zone_id,
+                msg.make_world_delta(room_id, seq, deltas, player_id=conn.player_id, zone_id=zone_id),
                 exclude={conn.player_id},
             )
 
@@ -372,6 +416,7 @@ class Handlers:
         affordance = payload.get("affordance")
         affordance_id = payload.get("affordance_id")
         target = payload.get("target")
+        zone_id = self._zone_of(conn, payload)
         status, detail = server.session.request_interaction(
             room_id,
             key,
@@ -381,6 +426,7 @@ class Handlers:
             affordance=affordance,
             affordance_id=affordance_id,
             target=target,
+            zone_id=zone_id,
         )
         if status == "busy":
             await conn.send(
@@ -401,19 +447,21 @@ class Handlers:
             )
             return
         server.logger.info(
-            "[MP][SYNC] Player %s started interaction %r on %r in room %s (aff=%r aff_id=%s target=%r)",
+            "[MP][SYNC] Player %s started interaction %r on %r in room %s zone %s (aff=%r aff_id=%s target=%r)",
             conn.player_id,
             interaction,
             key,
             room_id,
+            zone_id,
             affordance,
             affordance_id,
             target,
         )
-        # Echoed to the whole room (including the requester) so every mirror
+        # Echoed to the whole zone (including the requester) so every mirror
         # - including the sender's - self-heals from this single broadcast.
-        await server.broadcast_room(
+        await server.broadcast_zone(
             room_id,
+            zone_id,
             msg.make_interaction_start(
                 room_id,
                 key,
@@ -424,6 +472,7 @@ class Handlers:
                 affordance=detail.get("affordance"),
                 affordance_id=detail.get("affordance_id"),
                 target=detail.get("target"),
+                zone_id=zone_id,
             ),
         )
 
@@ -433,9 +482,11 @@ class Handlers:
 
         server = self._server
         room_id = conn.room_id
-        key = frame["payload"]["object_key"]
+        payload = frame["payload"]
+        key = payload["object_key"]
+        zone_id = self._zone_of(conn, payload)
         status, cooldown_until = server.session.end_interaction(
-            room_id, key, conn.player_id, server.interaction_cooldown
+            room_id, key, conn.player_id, server.interaction_cooldown, zone_id=zone_id
         )
         if status == "not_held":
             await conn.send(
@@ -447,14 +498,16 @@ class Handlers:
             )
             return
         server.logger.info(
-            "[MP][SYNC] Player %s ended interaction on %r in room %s",
+            "[MP][SYNC] Player %s ended interaction on %r in room %s zone %s",
             conn.player_id,
             key,
             room_id,
+            zone_id,
         )
-        await server.broadcast_room(
+        await server.broadcast_zone(
             room_id,
-            msg.make_interaction_free(room_id, key, cooldown_until),
+            zone_id,
+            msg.make_interaction_free(room_id, key, cooldown_until, zone_id=zone_id),
         )
 
     async def sync_clock(self, room_id):
@@ -493,11 +546,41 @@ class Handlers:
         player = server.session.get_player(conn.player_id)
         if player.clock_zone is not None and player.clock_zone != zone_id:
             if player.clock_ready:
+                old_zone = player.clock_zone
+                world_keys, interaction_keys = server.session.release_player_zone(
+                    conn.player_id, conn.room_id, old_zone, server.interaction_cooldown
+                )
+                for key in world_keys:
+                    await server.broadcast_zone(
+                        conn.room_id,
+                        old_zone,
+                        msg.make_object_ownership(
+                            conn.room_id, key, None, player_id=conn.player_id, zone_id=old_zone
+                        ),
+                        exclude={conn.player_id},
+                    )
+                for key, cooldown_until in interaction_keys:
+                    await server.broadcast_zone(
+                        conn.room_id,
+                        old_zone,
+                        msg.make_interaction_free(
+                            conn.room_id, key, cooldown_until, zone_id=old_zone
+                        ),
+                        exclude={conn.player_id},
+                    )
+                server.logger.info(
+                    "[MP][SYNC] Player %s left zone %s -> %s; released %s object(s), %s interaction(s)",
+                    conn.player_id,
+                    old_zone,
+                    zone_id,
+                    len(world_keys),
+                    len(interaction_keys),
+                )
                 server.session.clear_room_clock_ready(conn.room_id)
                 server.logger.info(
                     "[MP][SYNC] Player %s left zone %s -> %s; room re-gating",
                     conn.player_id,
-                    player.clock_zone,
+                    old_zone,
                     zone_id,
                 )
         player.clock_zone = zone_id
@@ -506,6 +589,21 @@ class Handlers:
             "[MP][SYNC] Player %s time-ready zone=%s",
             conn.player_id,
             zone_id,
+        )
+        # Flip the traveling client's mirror to the new zone's world.
+        await conn.send(
+            msg.make_world_state(
+                conn.room_id,
+                server.session.get_world_objects(conn.room_id, zone_id),
+                zone_id=zone_id,
+            )
+        )
+        await conn.send(
+            msg.make_interaction_state(
+                conn.room_id,
+                server.session.get_room_interactions(conn.room_id, zone_id),
+                zone_id=zone_id,
+            )
         )
         await self.sync_clock(conn.room_id)
 

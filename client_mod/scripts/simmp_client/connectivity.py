@@ -427,11 +427,17 @@ class MultiplayerClient:
                 self.time_speed = local
                 self._log("TIME", "TIME_SPEED %s (local change)" % local)
 
+    def _current_zone_id(self):
+        try:
+            return game_hooks.current_zone_id()
+        except Exception:
+            return None
+
     def claim_object(self, key):
         if self.engine is None or not self.engine.connected:
             self._log("ERROR", "not connected")
             return False
-        ok = self.engine.send_object_claim(key)
+        ok = self.engine.send_object_claim(key, zone_id=self._current_zone_id())
         if ok:
             self._log("SYNC", "Requested ownership of object %r" % key)
         return ok
@@ -440,7 +446,7 @@ class MultiplayerClient:
         if self.engine is None or not self.engine.connected:
             self._log("ERROR", "not connected")
             return False
-        ok = self.engine.send_object_release(key)
+        ok = self.engine.send_object_release(key, zone_id=self._current_zone_id())
         if ok:
             self._log("SYNC", "Released object %r" % key)
         return ok
@@ -450,7 +456,9 @@ class MultiplayerClient:
         if self.engine is None or not self.engine.connected:
             self._log("ERROR", "not connected")
             return False
-        ok = self.engine.send_object_update([{"key": key, "fields": fields, "rev": 0}])
+        ok = self.engine.send_object_update(
+            [{"key": key, "fields": fields, "rev": 0}], zone_id=self._current_zone_id()
+        )
         if ok:
             self._log("SYNC", "Sent OBJECT_UPDATE %r %s" % (key, fields))
         return ok
@@ -472,6 +480,7 @@ class MultiplayerClient:
             affordance=affordance,
             affordance_id=affordance_id,
             target=target,
+            zone_id=self._current_zone_id(),
         )
         if ok:
             self._log("SYNC", "Proposed interaction %r on %r" % (interaction, object_key))
@@ -481,7 +490,7 @@ class MultiplayerClient:
         if self.engine is None or not self.engine.connected:
             self._log("ERROR", "not connected")
             return False
-        ok = self.engine.send_interaction_end(object_key)
+        ok = self.engine.send_interaction_end(object_key, zone_id=self._current_zone_id())
         if ok:
             self._log("SYNC", "Ending interaction on %r" % object_key)
         return ok

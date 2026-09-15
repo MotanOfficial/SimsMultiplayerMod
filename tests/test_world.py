@@ -11,58 +11,85 @@ class LerpTests(unittest.TestCase):
 
 
 class WorldMirrorTests(unittest.TestCase):
-    def test_apply_full_replaces_catalog(self):
+    def _mirror(self, zone_id=None):
         mirror = WorldMirror()
+        mirror.apply_full("lobby", zone_id, [])
+        return mirror
+
+    def test_apply_full_replaces_catalog(self):
+        mirror = self._mirror(100)
         mirror.apply_full(
             "lobby",
+            100,
             [
                 {"key": "sofa", "owner": 1000, "fields": {"x": 1.0, "y": 2.0, "z": 3.0}},
                 {"key": "table", "owner": None, "fields": {}},
             ],
         )
         self.assertEqual(mirror.room_id, "lobby")
+        self.assertEqual(mirror.zone_id, 100)
         self.assertEqual(mirror.count(), 2)
         self.assertEqual(mirror.get("sofa").owner, 1000)
         self.assertEqual(mirror.get("table").owner, None)
 
+    def test_apply_full_on_zone_change_replaces(self):
+        mirror = self._mirror(100)
+        mirror.apply_full("lobby", 100, [{"key": "sofa", "owner": 1000, "fields": {"x": 1.0}}])
+        mirror.apply_full("lobby", 200, [{"key": "stove", "owner": None, "fields": {}}])
+        self.assertEqual(mirror.zone_id, 200)
+        self.assertEqual(mirror.count(), 1)
+        self.assertIn("stove", mirror.objects)
+        self.assertNotIn("sofa", mirror.objects)
+
     def test_apply_delta_merges_fields(self):
-        mirror = WorldMirror()
-        mirror.apply_full("lobby", [{"key": "sofa", "owner": 1000, "fields": {"x": 1.0}}])
-        mirror.apply_delta("lobby", 1, [{"key": "sofa", "fields": {"y": 5.0, "z": 0.0}}])
+        mirror = self._mirror(100)
+        mirror.apply_full("lobby", 100, [{"key": "sofa", "owner": 1000, "fields": {"x": 1.0}}])
+        mirror.apply_delta("lobby", 100, 1, [{"key": "sofa", "fields": {"y": 5.0, "z": 0.0}}])
         self.assertEqual(mirror.last_seq, 1)
         self.assertEqual(mirror.get("sofa").fields, {"x": 1.0, "y": 5.0, "z": 0.0})
 
     def test_apply_delta_stale_seq_ignored(self):
-        mirror = WorldMirror()
-        mirror.apply_full("lobby", [{"key": "sofa", "owner": 1000, "fields": {"x": 1.0}}])
-        mirror.apply_delta("lobby", 5, [{"key": "sofa", "fields": {"y": 1.0}}])
-        mirror.apply_delta("lobby", 4, [{"key": "sofa", "fields": {"y": 99.0}}])
+        mirror = self._mirror(100)
+        mirror.apply_full("lobby", 100, [{"key": "sofa", "owner": 1000, "fields": {"x": 1.0}}])
+        mirror.apply_delta("lobby", 100, 5, [{"key": "sofa", "fields": {"y": 1.0}}])
+        mirror.apply_delta("lobby", 100, 4, [{"key": "sofa", "fields": {"y": 99.0}}])
         self.assertEqual(mirror.last_seq, 5)
         self.assertEqual(mirror.get("sofa").fields["y"], 1.0)
 
     def test_apply_delta_wrong_room_ignored(self):
-        mirror = WorldMirror()
-        mirror.apply_full("lobby", [{"key": "sofa", "owner": None, "fields": {}}])
-        mirror.apply_delta("alpha", 1, [{"key": "sofa", "fields": {"x": 1.0}}])
+        mirror = self._mirror(100)
+        mirror.apply_full("lobby", 100, [{"key": "sofa", "owner": None, "fields": {}}])
+        mirror.apply_delta("alpha", 100, 1, [{"key": "sofa", "fields": {"x": 1.0}}])
         self.assertNotEqual(mirror.get("sofa").fields.get("x"), 1.0)
 
+    def test_apply_delta_wrong_zone_ignored(self):
+        mirror = self._mirror(100)
+        mirror.apply_full("lobby", 100, [{"key": "sofa", "owner": None, "fields": {}}])
+        mirror.apply_delta("lobby", 200, 1, [{"key": "sofa", "fields": {"x": 9.0}}])
+        self.assertNotEqual(mirror.get("sofa").fields.get("x"), 9.0)
+
     def test_apply_delta_creates_unknown_key(self):
-        mirror = WorldMirror()
-        mirror.apply_full("lobby", [])
-        mirror.apply_delta("lobby", 1, [{"key": "sofa", "fields": {"x": 2.0}}])
+        mirror = self._mirror(100)
+        mirror.apply_delta("lobby", 100, 1, [{"key": "sofa", "fields": {"x": 2.0}}])
         self.assertIn("sofa", mirror.objects)
 
     def test_apply_ownership_updates_owner(self):
-        mirror = WorldMirror()
-        mirror.apply_full("lobby", [{"key": "sofa", "owner": None, "fields": {}}])
-        mirror.apply_ownership("sofa", 1000)
+        mirror = self._mirror(100)
+        mirror.apply_full("lobby", 100, [{"key": "sofa", "owner": None, "fields": {}}])
+        mirror.apply_ownership("sofa", 1000, zone_id=100)
         self.assertEqual(mirror.get("sofa").owner, 1000)
         mirror.apply_claim_ack("sofa", None)
         self.assertIsNone(mirror.get("sofa").owner)
 
+    def test_apply_ownership_wrong_zone_ignored(self):
+        mirror = self._mirror(100)
+        mirror.apply_full("lobby", 100, [{"key": "sofa", "owner": None, "fields": {}}])
+        mirror.apply_ownership("sofa", 1000, zone_id=200)
+        self.assertIsNone(mirror.get("sofa").owner)
+
     def test_position_and_display_position_smoothing(self):
-        mirror = WorldMirror()
-        mirror.apply_full("lobby", [{"key": "sofa", "owner": None, "fields": {"x": 0.0, "y": 0.0, "z": 0.0}}])
+        mirror = self._mirror(100)
+        mirror.apply_full("lobby", 100, [{"key": "sofa", "owner": None, "fields": {"x": 0.0, "y": 0.0, "z": 0.0}}])
         sofa = mirror.get("sofa")
         # No anchor yet -> exact.
         self.assertEqual(mirror.get("sofa").display_position(now=100.0), (0.0, 0.0, 0.0))
@@ -74,6 +101,10 @@ class WorldMirrorTests(unittest.TestCase):
         self.assertEqual(sofa.display_position(now=101.0, rate=2.0), (10.0, 0.0, 0.0))
 
     def test_position_missing_fields_returns_none(self):
-        mirror = WorldMirror()
-        mirror.apply_full("lobby", [{"key": "table", "owner": None, "fields": {"state": "clean"}}])
+        mirror = self._mirror(100)
+        mirror.apply_full("lobby", 100, [{"key": "table", "owner": None, "fields": {"state": "clean"}}])
         self.assertIsNone(mirror.get("table").position())
+
+
+if __name__ == "__main__":
+    unittest.main()

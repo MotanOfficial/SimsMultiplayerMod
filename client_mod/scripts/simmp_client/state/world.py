@@ -64,22 +64,24 @@ class ObjectMirror:
 class WorldMirror:
     def __init__(self):
         self.room_id = None
+        self.zone_id = None
         self.objects = {}
         self.last_seq = 0
 
-    def reset(self, room_id):
+    def reset(self, room_id, zone_id=None):
         self.room_id = room_id
+        self.zone_id = zone_id
         self.objects = {}
         self.last_seq = 0
 
-    def apply_full(self, room_id, objects):
-        self.reset(room_id)
+    def apply_full(self, room_id, zone_id, objects):
+        self.reset(room_id, zone_id)
         for entry in objects:
             mirror = ObjectMirror(entry["key"], entry.get("owner"), entry.get("fields"))
             self.objects[mirror.key] = mirror
 
-    def apply_delta(self, room_id, seq, updates):
-        if room_id != self.room_id:
+    def apply_delta(self, room_id, zone_id, seq, updates):
+        if room_id != self.room_id or zone_id != self.zone_id:
             return
         if seq <= self.last_seq:
             return
@@ -92,7 +94,9 @@ class WorldMirror:
                 self.objects[mirror.key] = mirror
             mirror.merge_fields(update.get("fields"), now)
 
-    def apply_ownership(self, key, owner):
+    def apply_ownership(self, key, owner, zone_id=None):
+        if zone_id is not None and zone_id != self.zone_id:
+            return
         mirror = self.objects.get(key)
         if mirror is None:
             mirror = ObjectMirror(key)

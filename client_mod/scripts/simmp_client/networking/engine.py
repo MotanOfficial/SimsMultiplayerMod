@@ -202,17 +202,17 @@ class ClientEngine:
     def send_time_speed(self, speed, ticks=None):
         return self.send_message(msg.make_time_speed(speed, ticks=ticks))
 
-    def send_object_update(self, objects):
+    def send_object_update(self, objects, zone_id=None):
         """`objects` is [{"key": str, "fields": {...}, "rev": int}]."""
-        return self.send_message(msg.make_object_update(objects))
+        return self.send_message(msg.make_object_update(objects, zone_id=zone_id))
 
-    def send_object_claim(self, key):
-        return self.send_message(msg.make_object_claim(key))
+    def send_object_claim(self, key, zone_id=None):
+        return self.send_message(msg.make_object_claim(key, zone_id=zone_id))
 
-    def send_object_release(self, key):
-        return self.send_message(msg.make_object_release(key))
+    def send_object_release(self, key, zone_id=None):
+        return self.send_message(msg.make_object_release(key, zone_id=zone_id))
 
-    def send_interaction_request(self, object_key, interaction, args=None, affordance=None, affordance_id=None, target=None):
+    def send_interaction_request(self, object_key, interaction, args=None, affordance=None, affordance_id=None, target=None, zone_id=None):
         return self.send_message(
             msg.make_interaction_request(
                 object_key,
@@ -221,11 +221,12 @@ class ClientEngine:
                 affordance=affordance,
                 affordance_id=affordance_id,
                 target=target,
+                zone_id=zone_id,
             )
         )
 
-    def send_interaction_end(self, object_key):
-        return self.send_message(msg.make_interaction_end(object_key))
+    def send_interaction_end(self, object_key, zone_id=None):
+        return self.send_message(msg.make_interaction_end(object_key, zone_id=zone_id))
 
     def send_save_push(self, slot, seq, total, size, data):
         return self.send_message(msg.make_save_push(slot, seq, total, size, data))

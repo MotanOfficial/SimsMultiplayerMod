@@ -106,6 +106,28 @@ class MPServer:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def broadcast_zone(self, room_id, zone_id, message, exclude=None):
+        """Broadcast to room members in `zone_id` (unknown-zone members get it too).
+
+        Zone-scoped delivery: each receiver sees only the replicated world of
+        the zone they are currently in. Members who have not reported a zone
+        yet (join bootstrap, still gated) receive everything until their first
+        zone is known.
+        """
+        room = self.session.get_room(room_id)
+        if room is None:
+            return
+        exclude = exclude or set()
+        tasks = []
+        for player in list(room.members.values()):
+            if player.player_id in exclude:
+                continue
+            if self.session.player_zone(player) not in (None, zone_id):
+                continue
+            tasks.append(self._safe_send(player, message))
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     async def _safe_send(self, player, message):
         try:
             await player.connection.send(message)
@@ -261,44 +283,50 @@ class MPServer:
                         )
                         await conn.close()
                 self.session.expire_presence(self.presence_ttl)
-                for room_id, released in self.session.expire_interactions(
+                for (room_id, zone_id), released in self.session.expire_interactions(
                     self.interaction_max_duration, self.interaction_cooldown
                 ).items():
                     for key, cooldown_until in released:
                         self.logger.info(
-                            "[MP][SYNC] Auto-released interaction on %r in room %s (duration exceeded)",
+                            "[MP][SYNC] Auto-released interaction on %r in room %s zone %s (duration exceeded)",
                             key,
                             room_id,
+                            zone_id,
                         )
-                        await self.broadcast_room(
+                        await self.broadcast_zone(
                             room_id,
-                            msg.make_interaction_free(room_id, key, cooldown_until),
+                            zone_id,
+                            msg.make_interaction_free(room_id, key, cooldown_until, zone_id=zone_id),
                         )
                 released = self.session.expire_ghosts(
                     self.ghost_ownership_ttl, self.interaction_cooldown
                 )
-                for room_id, key, cooldown_until in released["interactions"]:
+                for room_id, zone_id, key, cooldown_until in released["interactions"]:
                         self.logger.info(
-                            "[MP][SYNC] Released ghost interaction on %r in room %s (identity evicted)",
+                            "[MP][SYNC] Released ghost interaction on %r in room %s zone %s (identity evicted)",
                             key,
                             room_id,
+                            zone_id,
                         )
-                        await self.broadcast_room(
+                        await self.broadcast_zone(
                             room_id,
-                            msg.make_interaction_free(room_id, key, cooldown_until),
+                            zone_id,
+                            msg.make_interaction_free(room_id, key, cooldown_until, zone_id=zone_id),
                         )
-                for room_id, key, player_id in released["world"]:
+                for room_id, zone_id, key, player_id in released["world"]:
                     self.logger.info(
-                        "[MP][SYNC] Released ghost-owned object %r in room %s (identity evicted)",
+                        "[MP][SYNC] Released ghost-owned object %r in room %s zone %s (identity evicted)",
                         key,
                         room_id,
+                        zone_id,
                     )
-                    await self.broadcast_room(
+                    await self.broadcast_zone(
                         room_id,
+                        zone_id,
                         msg.make_object_ownership(
-                            room_id, key, None, player_id=player_id
+                            room_id, key, None, player_id=player_id, zone_id=zone_id
                         ),
-exclude={player_id},
+                        exclude={player_id},
                     )
                 for player_id in released["players"]:
                     self.logger.info("[MP][NET] Evicted ghost player %s", player_id)

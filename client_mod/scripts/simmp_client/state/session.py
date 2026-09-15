@@ -57,12 +57,13 @@ class LocalSession:
         self._presence_seen = {}
 
     def apply_interaction_state(self, payload):
-        self.interactions.apply_full(payload["room_id"], payload["interactions"])
+        self.interactions.apply_full(payload["room_id"], payload.get("zone_id"), payload["interactions"])
 
     def apply_interaction_start(self, payload):
         args = payload.get("args")
         self.interactions.apply_start(
             payload["room_id"],
+            payload.get("zone_id"),
             payload["object_key"],
             payload["player_id"],
             payload["interaction"],
@@ -74,16 +75,16 @@ class LocalSession:
         )
 
     def apply_interaction_free(self, payload):
-        self.interactions.apply_free(payload["room_id"], payload["object_key"], payload["cooldown_until"])
+        self.interactions.apply_free(payload["room_id"], payload.get("zone_id"), payload["object_key"], payload["cooldown_until"])
 
     def apply_world_state(self, payload):
-        self.world.apply_full(payload["room_id"], payload["objects"])
+        self.world.apply_full(payload["room_id"], payload.get("zone_id"), payload["objects"])
 
     def apply_world_delta(self, payload):
-        self.world.apply_delta(payload["room_id"], payload["seq"], payload["updates"])
+        self.world.apply_delta(payload["room_id"], payload.get("zone_id"), payload["seq"], payload["updates"])
 
     def apply_object_ownership(self, payload):
-        self.world.apply_ownership(payload["key"], payload.get("owner"))
+        self.world.apply_ownership(payload["key"], payload.get("owner"), payload.get("zone_id"))
 
     def apply_object_claim_ack(self, payload):
         self.world.apply_claim_ack(payload["key"], payload.get("owner"))

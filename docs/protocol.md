@@ -42,11 +42,11 @@ All payload fields are mandatory unless noted.
 | `TRAVEL_RESPONSE` | `accepted` (bool) | Reply to a `TRAVEL_INVITE`. Optional `reason` (str) is attached to the `TRAVEL_ABORT` when rejecting. |
 | `TRAVEL_READY` | `zone_id` (int) | Report that you arrived at the travel target. Sent after `TRAVEL_BEGIN`; can be triggered automatically by the game hook or manually. |
 | `CLOCK_SYNC` | `zone_id` (int), `absolute_ticks` (int), `real_time` (float), `clock_speed` (int) | A reference sample of the game clock. The server stamps `player_id` and relays it to the room (not echoed to the sender), so peers can compute a clock offset. Used after travel completes by the initiator's stored beacon; also accepted at any time manually (e.g. `mp.clock`). |
-| `OBJECT_CLAIM` | `key` (str) | Request authority over `key` in your current room. On success the server replies `OBJECT_CLAIM_ACK` to you and broadcasts `OBJECT_OWNERSHIP` to the room; on failure it replies `ERROR OBJECT_LOCKED`. |
-| `OBJECT_RELEASE` | `key` (str) | Give up authority over `key`. The server always acks (`OBJECT_CLAIM_ACK`), and broadcasts `OBJECT_OWNERSHIP` (owner `null`) if you held the object. |
-| `OBJECT_UPDATE` | `objects` (`[{"key": str, "rev": int, "fields": {...}}]`) | Report changed fields of objects you claim. `rev` is the sender's local revision counter (validated, not yet used for conflict resolution). The server verifies ownership, applies only the changed fields, and relays `WORLD_DELTA` to the room. Errors: `OBJECT_NOT_FOUND` (first reference to an unclaimed key), `OBJECT_LOCKED` (owned by someone else). |
-| `INTERACTION_REQUEST` | `object_key` (str), `interaction` (str) | Propose starting an interaction (`interaction` is e.g. a trait/context name; the canonical list is an open research item) on `key` in your current room. Optional `args` (dict of JSON primitives). First come, first served per object: you either trigger a broadcast `INTERACTION_START` to the whole room (including you) or get an `ERROR` (`INTERACTION_BUSY`, `INTERACTION_COOLDOWN`). |
-| `INTERACTION_END` | `object_key` (str) | Declare the interaction on `key` finished. On success the room gets `INTERACTION_FREE` (including you); if you are not the holder you get an `ERROR INTERACTION_NOT_HELD`. |
+| `OBJECT_CLAIM` | `key` (str), optional `zone_id` (int) | Request authority over `key` in your current room + zone. On success the server replies `OBJECT_CLAIM_ACK` to you and broadcasts `OBJECT_OWNERSHIP` to your zone; on failure it replies `ERROR OBJECT_LOCKED`. When `zone_id` is omitted the server uses your ready/presence zone. |
+| `OBJECT_RELEASE` | `key` (str), optional `zone_id` (int) | Give up authority over `key`. The server always acks (`OBJECT_CLAIM_ACK`), and broadcasts `OBJECT_OWNERSHIP` (owner `null`) if you held the object. |
+| `OBJECT_UPDATE` | `objects` (`[{"key": str, "rev": int, "fields": {...}}]`), optional `zone_id` (int) | Report changed fields of objects you claim. `rev` is the sender's local revision counter (validated, not yet used for conflict resolution). The server verifies ownership, applies only the changed fields, and relays `WORLD_DELTA` to the zone. Errors: `OBJECT_NOT_FOUND` (first reference to an unclaimed key), `OBJECT_LOCKED` (owned by someone else). |
+| `INTERACTION_REQUEST` | `object_key` (str), `interaction` (str), optional `zone_id` (int) | Propose starting an interaction (`interaction` is e.g. a trait/context name; the canonical list is an open research item) on `key` in your current room + zone. Optional `args` (dict of JSON primitives). First come, first served per object: you either trigger a broadcast `INTERACTION_START` to your zone (including you) or get an `ERROR` (`INTERACTION_BUSY`, `INTERACTION_COOLDOWN`). |
+| `INTERACTION_END` | `object_key` (str), optional `zone_id` (int) | Declare the interaction on `key` finished. On success the zone gets `INTERACTION_FREE` (including you); if you are not the holder you get an `ERROR INTERACTION_NOT_HELD`. |
 | `TIME_READY` | `zone_id` (int) | Report that your game has loaded `zone_id` and is ready to play. The server holds the room's clock PAUSED until **every** participant (members + disconnected ghosts) has signalled ready. Sent automatically on connection when the zone is already running and again after each `WELCOME`. |
 | `TIME_SPEED` | `speed` (int) | Request a room clock speed: 0 = paused, 1 = normal, 2 = fast, 3 = fastest. Optional `ticks` (int) is a game-clock timestamp to go with the change. The server stores the desire (last change wins) and broadcasts `TIME_SYNC`; while the gate is closed the broadcast remains PAUSED until every participant readies. |
 
@@ -67,13 +67,13 @@ Server-stamped fields (`EVENT.player_id`, `PRESENCE.player_id`, `PRESENCE.room_i
 | `TRAVEL_COMPLETE` | `zone_id` | Broadcast when every member reported `TRAVEL_READY` for the target zone. If the initiator had a stored `CLOCK_SYNC` beacon, it is relayed right after complete so the room can realign its clocks. |
 | `TRAVEL_ABORT` | `reason` (str) | Broadcast when the travel cannot proceed: someone **declined** (`"declined by <name> (<reason>)"`), a member **disconnected**, a deadline passed (`"invite timeout"`, `"ready timeout"`), a member reported **ready in the wrong zone**, or a newer request **superseded** it. |
 | `ERROR` | `code`, `message` | Reply to a bad message. See codes below. |
-| `WORLD_STATE` | `room_id`, `objects` (`[{"key": str, "owner": int\|null, "fields": {...}}]`) | Full snapshot of the room's object catalog. Sent right after `WELCOME`/`ROOM_STATE` on `HELLO` and right after `ROOM_STATE` on `JOIN_ROOM`. Replaces the client's mirror wholesale. |
-| `OBJECT_OWNERSHIP` | `room_id`, `key`, `owner` (int\|null) | Broadcast to a room when `key` changes hands. `owner` `null` means released. Not echoed to the sender (`player_id` identifies the origin). |
+| `WORLD_STATE` | `room_id`, `objects` (`[{"key": str, "owner": int\|null, "fields": {...}}]`), optional `zone_id` (int) | Full snapshot of the object catalog for one zone of a room. Sent right after `WELCOME`/`ROOM_STATE` on `HELLO` (for the room's dominant zone when you have none yet) and again with the target zone when you `TIME_READY`. Replaces the client's mirror wholesale. |
+| `OBJECT_OWNERSHIP` | `room_id`, `key`, `owner` (int\|null), optional `zone_id` (int) | Broadcast to a zone when `key` changes hands. `owner` `null` means released. Not echoed to the sender (`player_id` identifies the origin). |
 | `OBJECT_CLAIM_ACK` | `key`, `owner` (int\|null) | Sent to the requester of `OBJECT_CLAIM`/`OBJECT_RELEASE`. `owner` is your `player_id` after a claim, `null` after a release. |
-| `WORLD_DELTA` | `room_id`, `seq` (int), `updates` (`[{"key": str, "fields": {...}}]`), `player_id` (int) | Incremental world update relayed to the room (excluding the sender). `seq` is a per-room monotonic number assigned by the server; only actually-changed fields are included. Clients discard deltas with `seq <= last seen` or from another room. |
-| `INTERACTION_START` | `room_id`, `object_key`, `player_id` (int), `interaction` (str), `started_at` (float) | Broadcast to the **whole room including the sender** when an interaction starts (echo-style, so one broadcast self-heals every mirror and no separate ack is needed). Optional `args` (dict of JSON primitives). `started_at` is the server's monotonic clock at grant time. |
-| `INTERACTION_FREE` | `room_id`, `object_key`, `cooldown_until` (float) | Broadcast to the **whole room including the sender** when an interaction is released: explicit `INTERACTION_END`, watchdog expiry, or ghost eviction. `cooldown_until` is a server-clock timestamp; the object is blocked for interaction until then. |
-| `INTERACTION_STATE` | `room_id`, `interactions` (`[{"object_key": str, "player_id": int, "interaction": str, "started_at": float, optional "args": {...}}]`) | Snapshot of every active interaction in the room. Sent right after `WORLD_STATE` on `HELLO` and after `ROOM_STATE`/`WORLD_STATE` on `JOIN_ROOM`, so a client that missed broadcasts self-heals. |
+| `WORLD_DELTA` | `room_id`, `seq` (int), `updates` (`[{"key": str, "fields": {...}}]`), `player_id` (int), optional `zone_id` (int) | Incremental world update relayed to the zone (excluding the sender). `seq` is a per-zone monotonic number assigned by the server; only actually-changed fields are included. Clients discard deltas with `seq <= last seen`, from another room, or for another zone. |
+| `INTERACTION_START` | `room_id`, `object_key`, `player_id` (int), `interaction` (str), `started_at` (float), optional `zone_id` (int) | Broadcast to the **whole zone including the sender** when an interaction starts (echo-style, so one broadcast self-heals every mirror and no separate ack is needed). Optional `args` (dict of JSON primitives). `started_at` is the server's monotonic clock at grant time. |
+| `INTERACTION_FREE` | `room_id`, `object_key`, `cooldown_until` (float), optional `zone_id` (int) | Broadcast to the **whole zone including the sender** when an interaction is released: explicit `INTERACTION_END`, watchdog expiry, or ghost eviction. `cooldown_until` is a server-clock timestamp; the object is blocked for interaction until then. |
+| `INTERACTION_STATE` | `room_id`, `interactions` (`[{"object_key": str, "player_id": int, "interaction": str, "started_at": float, optional "args": {...}}]`), optional `zone_id` (int) | Snapshot of every active interaction in one zone of the room. Sent right after `WORLD_STATE` on `HELLO` and after `ROOM_STATE`/`WORLD_STATE` on `JOIN_ROOM`, so a client that missed broadcasts self-heals. |
 | `TIME_SYNC` | `speed` (int), optional `ticks` (int), optional `player_id` (int) | Authoritative room clock broadcast to every member (including the sender). `speed` is the effective speed: `0` while the gate is closed (any participant not ready, or mid-session disconnect), otherwise the last requested speed. `player_id` is who last requested a speed change (`null` when default). Clients must enforce `speed` locally and use the echo window to avoid re-sending their own change. |
 
 ### Travel handshake
@@ -115,11 +115,26 @@ Ownership model (server-authoritative):
 - Ownership is per-room and dies with the connection (the catalog entry itself
   survives so a later arrival can claim the same key).
 
+Zone scoping (split-zone coexistence):
+
+- The catalog, interaction table, and `WORLD_DELTA` sequence are partitioned
+  per **zone** inside a room: two players in different zones claim, update and
+  interact with the same coordinate space without ever seeing each other's
+  entries or broadcasts.
+- A member receives zone-scoped traffic only while it is *in* that zone. Its
+  zone is its `TIME_READY` zone (authoritative), else its reported `PRESENCE`
+  zone. Members whose zone is unknown (fresh join, still gated) receive
+  everything so they synchronize before their first ready.
+- Traveling: a `TIME_READY` in a new zone flips the readying client's mirror to
+  that zone's snapshot, auto-releases every object/interaction it held in the
+  *old* zone (broadcast as released there), and re-gates the room until
+  everyone readies in the new zone.
+
 Delta flow:
 
 - The server merges each accepted `OBJECT_UPDATE` into the catalog entry,
-  keeping only fields that actually changed, bumps a per-room `seq`, and
-  relays `WORLD_DELTA` to the other room members.
+  keeping only fields that actually changed, bumps a per-zone `seq`, and
+  relays `WORLD_DELTA` to the other members of that zone.
 - New arrivals get the full catalog via `WORLD_STATE` (sent directly after
   `ROOM_STATE` on both `HELLO` and `JOIN_ROOM`), so a missed delta self-heals
   on room join.

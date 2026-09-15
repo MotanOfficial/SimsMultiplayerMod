@@ -95,10 +95,10 @@ class Session:
         self._rooms = {DEFAULT_ROOM_ID: Room(DEFAULT_ROOM_ID)}
         self._next_player_id = 1000
         self._by_client_id = {}
-        self._world_by_room = {}
-        self._world_seq_by_room = {}
-        self._interactions_by_room = {}
-        self._cooldowns_by_room = {}
+        self._world_by_zone = {}
+        self._world_seq_by_zone = {}
+        self._interactions_by_zone = {}
+        self._cooldowns_by_zone = {}
 
     @property
     def players(self):
@@ -152,6 +152,37 @@ class Session:
     def get_room(self, room_id):
         return self._rooms.get(room_id)
 
+    @staticmethod
+    def _zone_key(room_id, zone_id):
+        return (room_id, zone_id)
+
+    def player_zone(self, player):
+        """Live zone of a player: ready zone, else presence zone, else None."""
+        if player.clock_zone is not None:
+            return player.clock_zone
+        presence = player.presence
+        if presence is not None:
+            return presence.get("zone_id")
+        return None
+
+    def dominant_room_zone(self, room_id):
+        """Most common ready zone among the room's members, else None.
+
+        Used to bootstrap a freshly connected player who hasn't reported their
+        own zone yet, so their join snapshot matches where the room actually is.
+        """
+        room = self._rooms.get(room_id)
+        if room is None:
+            return None
+        counts = {}
+        for member in room.members.values():
+            zone_id = member.clock_zone
+            if zone_id is not None and member.clock_ready:
+                counts[zone_id] = counts.get(zone_id, 0) + 1
+        if not counts:
+            return None
+        return max(counts, key=counts.get)
+
     def get_or_create_room(self, room_id):
         room = self._rooms.get(room_id)
         if room is None:
@@ -177,15 +208,16 @@ class Session:
             if presence is not None and now - presence.get("received_at", 0) > ttl:
                 player.presence = None
 
-    def next_world_seq(self, room_id):
-        self._world_seq_by_room[room_id] = self._world_seq_by_room.get(room_id, 0) + 1
-        return self._world_seq_by_room[room_id]
+    def next_world_seq(self, room_id, zone_id=None):
+        key = self._zone_key(room_id, zone_id)
+        self._world_seq_by_zone[key] = self._world_seq_by_zone.get(key, 0) + 1
+        return self._world_seq_by_zone[key]
 
-    def get_world_object(self, room_id, key):
-        return self._world_by_room.get(room_id, {}).get(key)
+    def get_world_object(self, room_id, key, zone_id=None):
+        return self._world_by_zone.get(self._zone_key(room_id, zone_id), {}).get(key)
 
-    def get_world_objects(self, room_id):
-        objects = self._world_by_room.get(room_id, {})
+    def get_world_objects(self, room_id, zone_id=None):
+        objects = self._world_by_zone.get(self._zone_key(room_id, zone_id), {})
         return [self._world_entry(obj) for obj in objects.values()]
 
     def _world_entry(self, obj):
@@ -195,9 +227,9 @@ class Session:
             "fields": dict(obj.fields),
         }
 
-    def claim_object(self, room_id, key, player_id):
-        """Attempt to acquire ownership. Returns (ok, already_owner, prev_owner)."""
-        objects = self._world_by_room.setdefault(room_id, {})
+    def claim_object(self, room_id, key, player_id, zone_id=None):
+        """Attempt to acquire ownership in `zone_id`. Returns (ok, already_owner, prev_owner)."""
+        objects = self._world_by_zone.setdefault(self._zone_key(room_id, zone_id), {})
         obj = objects.get(key)
         if obj is None:
             obj = WorldObject(key)
@@ -207,23 +239,23 @@ class Session:
         obj.owner = player_id
         return (True, obj.owner == player_id and obj.owner is not None, None)
 
-    def release_object(self, room_id, key, player_id):
-        """Release ownership if held by `player_id`. Returns True if released."""
-        obj = self._world_by_room.get(room_id, {}).get(key)
+    def release_object(self, room_id, key, player_id, zone_id=None):
+        """Release ownership in `zone_id` if held by `player_id`. Returns True if released."""
+        obj = self._world_by_zone.get(self._zone_key(room_id, zone_id), {}).get(key)
         if obj is None or obj.owner != player_id:
             return False
         obj.owner = None
         return True
 
-    def apply_world_update(self, room_id, key, fields, player_id):
-        """Apply a delta to an owned object.
+    def apply_world_update(self, room_id, key, fields, player_id, zone_id=None):
+        """Apply a delta to an owned object in `zone_id`.
 
         Returns a (status, detail) tuple:
           ("ok", changed_fields)    - applied; changed is the delta actually sent
           ("locked", owner_player_id) - owned by someone else
           ("not_found", None)       - key was never claimed (claim it first)
         """
-        obj = self._world_by_room.get(room_id, {}).get(key)
+        obj = self._world_by_zone.get(self._zone_key(room_id, zone_id), {}).get(key)
         if obj is None:
             return ("not_found", None)
         if obj.owner != player_id:
@@ -236,11 +268,11 @@ class Session:
         obj.fields.update(fields)
         return ("ok", changed)
 
-    def get_interaction(self, room_id, key):
-        return self._interactions_by_room.get(room_id, {}).get(key)
+    def get_interaction(self, room_id, key, zone_id=None):
+        return self._interactions_by_zone.get(self._zone_key(room_id, zone_id), {}).get(key)
 
-    def get_room_interactions(self, room_id):
-        interactions = self._interactions_by_room.get(room_id, {})
+    def get_room_interactions(self, room_id, zone_id=None):
+        interactions = self._interactions_by_zone.get(self._zone_key(room_id, zone_id), {})
         return [self._interaction_entry(interaction) for interaction in interactions.values()]
 
     def _interaction_entry(self, interaction):
@@ -260,8 +292,8 @@ class Session:
             entry["target"] = interaction.target
         return entry
 
-    def request_interaction(self, room_id, key, player_id, interaction, args=None, now=None, cooldown_override=None, affordance=None, affordance_id=None, target=None):
-        """Reserve `key` for `player_id`'s interaction, first-come-first-served.
+    def request_interaction(self, room_id, key, player_id, interaction, args=None, now=None, cooldown_override=None, affordance=None, affordance_id=None, target=None, zone_id=None):
+        """Reserve `key` for `player_id`'s interaction in `zone_id`, first-come-first-served.
 
         Returns a (status, detail) tuple:
           ("start", entry)   - granted (or renewed by the same holder)
@@ -269,7 +301,8 @@ class Session:
           ("cooldown", cooldown_until) - key was recently released
         """
         now = now if now is not None else time.time()
-        interactions = self._interactions_by_room.setdefault(room_id, {})
+        zone = self._zone_key(room_id, zone_id)
+        interactions = self._interactions_by_zone.setdefault(zone, {})
         current = interactions.get(key)
         if current is not None:
             if current.player_id == player_id:
@@ -281,79 +314,106 @@ class Session:
                 current.started_at = now
                 return ("start", self._interaction_entry(current))
             return ("busy", current.player_id)
-        cooldown_until = self._cooldowns_by_room.get(room_id, {}).get(key, 0)
+        cooldown_until = self._cooldowns_by_zone.get(zone, {}).get(key, 0)
         if cooldown_until > now:
             return ("cooldown", cooldown_until)
         if cooldown_until:
-            del self._cooldowns_by_room[room_id][key]
+            del self._cooldowns_by_zone[zone][key]
         held = Interaction(key, player_id, interaction, now, args, affordance, affordance_id, target)
         interactions[key] = held
         return ("start", self._interaction_entry(held))
 
-    def end_interaction(self, room_id, key, player_id, cooldown, now=None):
-        """End an interaction held by `player_id`, starting the release cooldown.
+    def end_interaction(self, room_id, key, player_id, cooldown, now=None, zone_id=None):
+        """End an interaction held by `player_id` in `zone_id`, starting the release cooldown.
 
         Returns a (status, cooldown_until) tuple: ("ended", until) or
         ("not_held", None).
         """
         now = now if now is not None else time.time()
-        interactions = self._interactions_by_room.get(room_id, {})
+        zone = self._zone_key(room_id, zone_id)
+        interactions = self._interactions_by_zone.get(zone, {})
         current = interactions.get(key)
         if current is None or current.player_id != player_id:
             return ("not_held", None)
         del interactions[key]
         cooldown_until = now + cooldown
-        self._cooldowns_by_room.setdefault(room_id, {})[key] = cooldown_until
+        self._cooldowns_by_zone.setdefault(zone, {})[key] = cooldown_until
         return ("ended", cooldown_until)
 
     def expire_interactions(self, max_duration, cooldown, now=None):
         """Auto-release interactions that ran longer than `max_duration`.
 
-        Returns {room_id: [(key, cooldown_until)]} for each released key so the
-        server can broadcast `INTERACTION_FREE`.
+        Returns { (room_id, zone_id): [(key, cooldown_until)] } for each
+        released key so the server can broadcast `INTERACTION_FREE` (zone-scoped).
         """
         now = now if now is not None else time.time()
         released = {}
-        for room_id, interactions in list(self._interactions_by_room.items()):
+        for zone, interactions in list(self._interactions_by_zone.items()):
             for key, interaction in list(interactions.items()):
                 if now - interaction.started_at > max_duration:
                     del interactions[key]
                     cooldown_until = now + cooldown
-                    self._cooldowns_by_room.setdefault(room_id, {})[key] = cooldown_until
-                    released.setdefault(room_id, []).append((key, cooldown_until))
+                    self._cooldowns_by_zone.setdefault(zone, {})[key] = cooldown_until
+                    released.setdefault(zone, []).append((key, cooldown_until))
         return released
 
     def release_player_interactions(self, player_id, cooldown, now=None):
         """Release every interaction held by `player_id` (e.g. on disconnect).
 
-        Returns [(room_id, key, cooldown_until)] for broadcast.
+        Returns [(room_id, zone_id, key, cooldown_until)] for broadcast.
         """
         now = now if now is not None else time.time()
         released = []
-        for room_id, interactions in list(self._interactions_by_room.items()):
+        for (room_id, zone_id), interactions in list(self._interactions_by_zone.items()):
             for key, interaction in list(interactions.items()):
                 if interaction.player_id != player_id:
                     continue
                 del interactions[key]
                 cooldown_until = now + cooldown
-                self._cooldowns_by_room.setdefault(room_id, {})[key] = cooldown_until
-                released.append((room_id, key, cooldown_until))
+                self._cooldowns_by_zone.setdefault((room_id, zone_id), {})[key] = cooldown_until
+                released.append((room_id, zone_id, key, cooldown_until))
         return released
 
     def release_player_world(self, player_id):
         """Clear ownership of every object `player_id` owns.
 
-        Returns [(room_id, key)] so the server can broadcast `OBJECT_OWNERSHIP`
-        (owner null). World ownership normally outlives a disconnect (holding
-        period), so this only runs on ghost eviction.
+        Returns [(room_id, zone_id, key)] so the server can broadcast
+        `OBJECT_OWNERSHIP` (owner null). World ownership normally outlives a
+        disconnect (holding period), so this only runs on ghost eviction.
         """
         released = []
-        for room_id, objects in self._world_by_room.items():
+        for (room_id, zone_id), objects in list(self._world_by_zone.items()):
             for key, obj in list(objects.items()):
                 if obj.owner == player_id:
                     obj.owner = None
-                    released.append((room_id, key))
+                    released.append((room_id, zone_id, key))
         return released
+
+    def release_player_zone(self, player_id, room_id, zone_id, cooldown, now=None):
+        """Release a player's objects + interactions in one zone.
+
+        Runs when the player reports ready in a *different* zone (travel), so
+        the zone they left keeps no stale ownership. Returns
+        (world_keys, interaction_keys) for broadcast to that zone.
+        """
+        now = now if now is not None else time.time()
+        partition = self._zone_key(room_id, zone_id)
+        world_released = []
+        objects = self._world_by_zone.get(partition, {})
+        for key, obj in list(objects.items()):
+            if obj.owner == player_id:
+                obj.owner = None
+                world_released.append(key)
+        interaction_released = []
+        interactions = self._interactions_by_zone.get(partition, {})
+        for key, interaction in list(interactions.items()):
+            if interaction.player_id != player_id:
+                continue
+            del interactions[key]
+            cooldown_until = now + cooldown
+            self._cooldowns_by_zone.setdefault(partition, {})[key] = cooldown_until
+            interaction_released.append((key, cooldown_until))
+        return (world_released, interaction_released)
 
     def expire_ghosts(self, player_ttl, interaction_cooldown, now=None):
         """Evict players who stayed disconnected longer than `player_ttl`.
@@ -366,8 +426,8 @@ its identity is dropped, so a much-later reconnect starts fresh (new
 player_id).
 
         Returns a dict for the server to broadcast:
-          {"interactions": [(room_id, key, cooldown_until)],
-           "world": [(room_id, key, player_id)],
+          {"interactions": [(room_id, zone_id, key, cooldown_until)],
+           "world": [(room_id, zone_id, key, player_id)],
            "players": [player_id]}
         """
         now = now if now is not None else time.time()
@@ -382,7 +442,7 @@ player_id).
             )
             world_released = self.release_player_world(player.player_id)
             released["world"].extend(
-                (room_id, key, player.player_id) for room_id, key in world_released
+                (room_id, zone_id, key, player.player_id) for room_id, zone_id, key in world_released
             )
             self._forget_player(player)
             released["players"].append(player.player_id)
