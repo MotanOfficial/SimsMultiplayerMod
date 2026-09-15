@@ -535,12 +535,17 @@ def unpause_game():
 def travel_to_zone(zone_id):
     """Best-effort travel trigger: move the active Sim to `zone_id`.
 
-    Public API (Sims 4 Community Library `CommonTravelUtils`):
-    `sim_info.send_travel_switch_to_zone_op(zone_id=zone_id)`. Returns True
-    when a travel op was requested, False when the game API is unavailable.
+    Validates the zone exists before triggering the op to avoid freezing the
+    game on a bogus zone id.  Public API (Sims 4 Community Library
+    `CommonTravelUtils`): `sim_info.send_travel_switch_to_zone_op(
+    zone_id=zone_id)`.  Returns True when a travel op was requested, False
+    when the game API is unavailable or the zone cannot be found.
     """
     try:
         import services
+
+        if not _zone_exists(zone_id):
+            return False
 
         client = services.client_manager().get_first_client()
         if client is None:
@@ -556,6 +561,45 @@ def travel_to_zone(zone_id):
         return True
     except Exception:
         return False
+
+
+def _zone_exists(zone_id):
+    """True when `zone_id` resolves to real zone data.
+
+    Tolerant of API drift: tries a couple of lookups and only blocks when it
+    can positively conclude the zone is missing.
+    """
+    try:
+        import services
+
+        zone_manager = services.get_zone_manager()
+        if zone_manager is not None:
+            lookup = getattr(zone_manager, "get", None)
+            if lookup is not None:
+                try:
+                    zone = lookup(zone_id)
+                except Exception:
+                    zone = None
+                if zone is None:
+                    return False
+                return True
+    except Exception:
+        pass
+    try:
+        import services
+
+        get_zone = getattr(services, "get_zone", None)
+        if get_zone is not None:
+            try:
+                zone = get_zone(zone_id)
+            except Exception:
+                zone = None
+            if zone is None:
+                return False
+            return True
+    except Exception:
+        pass
+    return True
 
 
 def _vec3(value):
