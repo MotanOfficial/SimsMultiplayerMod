@@ -324,7 +324,8 @@ class MultiplayerClient:
         now = time.time()
         if not self.time_gate:
             game_hooks.set_clock_speed(speed)
-        self._clock_echo_until = now + self._clock_echo_window
+            # Echo window: suppress the server bouncing our own change back.
+            self._clock_echo_until = now + self._clock_echo_window
         ticks = None
         sample = game_hooks.sample_game_clock()
         if sample is not None:
@@ -418,7 +419,11 @@ class MultiplayerClient:
         if local is None:
             return
         if self.time_gate:
-            if local != CLOCK_SPEED_PAUSED and now >= self._clock_echo_until:
+            # Gated: someone is still joining/loading. The room must stay
+            # paused. Do this eagerly even inside an echo window - the echo
+            # exists only to suppress the server bouncing our own OPEN-gate
+            # speed change back at us, never a PAUSE.
+            if local != CLOCK_SPEED_PAUSED:
                 game_hooks.set_clock_speed(CLOCK_SPEED_PAUSED)
             return
         if now - self._gate_open_since < self._clock_echo_window:
@@ -705,7 +710,11 @@ class MultiplayerClient:
             self.time_ticks = payload.get("ticks")
             self.time_gate = gate
             now = time.time()
-            if not gate and was_closed:
+            if gate:
+                # Room paused (peer still joining/loading): apply the PAUSE
+                # immediately, never delayed by an echo window.
+                self._apply_room_speed(CLOCK_SPEED_PAUSED)
+            elif was_closed:
                 self._gate_open_since = now
                 if now >= self._clock_echo_until:
                     self._clock_echo_until = now + self._clock_echo_window

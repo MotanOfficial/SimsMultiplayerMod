@@ -188,7 +188,7 @@ the game was restarted after installing the mod.
 ## Tests
 
 ```bash
-python tests/run_tests.py      # 268 tests, stdlib only
+python tests/run_tests.py      # 270 tests, stdlib only
 python -m pytest -q            # optional
 ```
 

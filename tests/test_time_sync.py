@@ -335,6 +335,22 @@ class TimeClientTickTests(unittest.TestCase):
             client._maybe_sync_clock()
         self.assertEqual(client.engine.ready_calls, [])
 
+    def test_gated_tick_forces_pause_ignoring_echo_window(self):
+        # Regression: while a peer is still joining (gate closed) the local
+        # game must be re-paused on every tick, even inside an echo window
+        # left over from the player's own last speed change.
+        client = self._client()
+        client.time_gate = True
+        client.zone_ready_id = 100
+        client._clock_echo_until = time_far_future()
+        with self._zone_state(100), mock.patch(
+            "simmp_client.connectivity.game_hooks.get_clock_speed", return_value=1
+        ), mock.patch(
+            "simmp_client.connectivity.game_hooks.set_clock_speed", return_value=0
+        ) as setter:
+            client._maybe_sync_clock()
+        setter.assert_called_once_with(0)
+
     def test_welcome_resets_zone_ready_id(self):
         client = MultiplayerClient(client_name="Alice")
         client.time_ready_sent = True
@@ -373,6 +389,20 @@ class TimeClientHandlerTests(unittest.TestCase):
         self.assertEqual(client.time_speed, 2)
         self.assertFalse(client.time_gate)
         setter.assert_not_called()
+
+    def test_gated_time_sync_pauses_even_inside_echo_window(self):
+        # Regression: a player who just hit play set an echo window. If a peer
+        # is still joining, the gate-closing TIME_SYNC must still pause them
+        # immediately - the echo window may never delay a PAUSE.
+        client = MultiplayerClient(client_name="Alice")
+        client.time_gate = False
+        client.time_speed = 1
+        client._clock_echo_until = time_far_future()
+        with mock.patch("simmp_client.connectivity.game_hooks.set_clock_speed", return_value=0) as setter:
+            client._handle_message(msg.make_time_sync(0))
+        self.assertTrue(client.time_gate)
+        self.assertEqual(client.time_speed, 0)
+        setter.assert_called_once_with(0)
 
     def test_clock_apply_disabled_keeps_state_but_no_apply(self):
         client = MultiplayerClient(client_name="Alice")
