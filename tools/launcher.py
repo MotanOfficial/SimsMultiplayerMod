@@ -563,14 +563,20 @@ class LauncherApp(object):
         if exc is not None:
             self.sync_status.config(text="Share failed: %s" % exc, fg=RED)
             return
-        if ok and reached >= 1:
+        if ok:
+            # The server caches the save, so a player who joins after this
+            # share (or wasn't connected at push time) still receives it.
             self.synced = True
-            self.sync_status.config(
-                text="Save synced to %d player(s). They can press Start game now." % reached, fg=GREEN)
             self.btn_share.config(state="normal")
+            if reached >= 1:
+                self.sync_status.config(
+                    text="Save synced to %d player(s). They can press Start game now." % reached, fg=GREEN)
+            else:
+                self.sync_status.config(
+                    text="Save staged - players who join or reconnect will receive it automatically.",
+                    fg=GREEN)
         else:
-            self.sync_status.config(
-                text="No connected players yet - keep the lobby open and try again.", fg=RED)
+            self.sync_status.config(text="Share failed.", fg=RED)
             self.btn_share.config(state="normal")
         self._update_host_start_button()
 
@@ -600,7 +606,15 @@ class LauncherApp(object):
         self._note("Joining %s:%s - waiting for the host to share the save..." % (host, port))
         def work():
             try:
-                slot, path = lobby.receive_save_file(host, port, name=name, timeout=120.0)
+                slot, path = lobby.receive_save_file(
+                    host,
+                    port,
+                    name=name,
+                    timeout=120.0,
+                    on_connected=lambda: self._post(lambda: self._note(
+                        "Connected as %s - save request sent to the host's lobby."
+                        % name)),
+                )
                 self._post(lambda: self._on_join_done(slot, path))
             except Exception as exc:  # noqa: BLE001
                 self._post(lambda e=exc: self._on_join_done(None, None, e))

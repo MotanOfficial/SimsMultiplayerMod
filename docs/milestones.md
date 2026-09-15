@@ -692,7 +692,7 @@ button that launches the game already configured to auto-connect.
   the intended folder, server start/stop/restart and port-conflict guard),
   `tests/test_launcher_gui.py` (deferred-error callbacks, LAN IP dropdown,
   frozen self-test install). Full suite:
-  `python tests/run_tests.py` -> **267 tests OK**.
+  `python tests/run_tests.py` -> **268 tests OK**.
 - [ ] Manual two-PC handoff test: run the built exe on both machines, host
   opens a lobby + shares a save, the other joins + receives, both Start
   game and land in the shared household. Requires two PCs on the same LAN

@@ -125,6 +125,33 @@ class PushAndReceiveTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(reached, 0)
 
+    def test_late_joiner_gets_save_shared_before_connect(self):
+        # Regression: the host shared while nobody was connected (reached=0).
+        # A joiner who connects afterwards must still receive the save via the
+        # server's cached replay (SAVE_REQUEST), instead of hanging forever.
+        slot = "late_join_%d.save" % os.getpid()
+        with open(os.path.join(self.save_dir, slot), "wb") as handle:
+            handle.write(b"W")
+        source = self._write_save(name=slot, size=300 * 1024)
+        ok, reached = lobby.push_save_file(source, "127.0.0.1", self.server.actual_port)
+        self.assertTrue(ok)
+        self.assertEqual(reached, 0, "no peer was connected at push time")
+        received = {}
+
+        def joiner():
+            received["result"] = lobby.receive_save_file(
+                "127.0.0.1", self.server.actual_port, timeout=20.0
+            )
+
+        thread = threading.Thread(target=joiner, daemon=True)
+        thread.start()
+        thread.join(timeout=20.0)
+        self.assertFalse(thread.is_alive(), "late joiner never received the cached save")
+        got_slot, path = received["result"]
+        self.assertEqual(got_slot, slot)
+        self.assertTrue(os.path.isfile(path))
+        self.assertEqual(os.path.dirname(path), self.save_dir)
+
     def test_receive_save_lands_in_saves_folder(self):
         slot = "lobby_test_%d.save" % os.getpid()
         # real flow: the client already owns that slot -> prefer_slot resolves

@@ -65,6 +65,7 @@ INTERACTION_FREE = "INTERACTION_FREE"
 INTERACTION_STATE = "INTERACTION_STATE"
 SAVE_PUSH = "SAVE_PUSH"
 SAVE_ACK = "SAVE_ACK"
+SAVE_REQUEST = "SAVE_REQUEST"
 TIME_SYNC = "TIME_SYNC"
 TIME_READY = "TIME_READY"
 TIME_SPEED = "TIME_SPEED"
@@ -105,6 +106,7 @@ MESSAGE_TYPES = frozenset(
         INTERACTION_STATE,
         SAVE_PUSH,
         SAVE_ACK,
+        SAVE_REQUEST,
         TIME_SYNC,
         TIME_READY,
         TIME_SPEED,
@@ -146,6 +148,7 @@ REQUIRED_PAYLOAD_FIELDS = {
     INTERACTION_STATE: ("room_id", "interactions"),
     SAVE_PUSH: ("slot", "seq", "total", "size", "data"),
     SAVE_ACK: ("slot", "ok", "reached"),
+    SAVE_REQUEST: (),
     TIME_SYNC: ("speed",),
     TIME_READY: ("zone_id",),
     TIME_SPEED: ("speed",),

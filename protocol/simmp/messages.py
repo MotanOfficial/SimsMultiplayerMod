@@ -291,6 +291,12 @@ def make_save_ack(slot, ok, reached, message=None):
     return build_message("SAVE_ACK", payload)
 
 
+def make_save_request():
+    """Ask the server to replay the room's cached save (if the host shared
+    one while this client was not yet connected)."""
+    return build_message("SAVE_REQUEST", {})
+
+
 def make_time_sync(speed, ticks=None, player_id=None, gate=None):
     """Authoritative room clock state (sent by the server to clients).
 

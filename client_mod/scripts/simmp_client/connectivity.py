@@ -524,6 +524,17 @@ class MultiplayerClient:
             sent += 1
         return (sent, total)
 
+    def request_save(self):
+        """Ask the server to replay the room's cached save (if any).
+
+        Essential for late joiners: a player who connects after the host
+        already shared would otherwise wait forever for a broadcast that
+        already happened.
+        """
+        if self.engine is None or not self.engine.connected:
+            return False
+        return self.engine.send_save_request()
+
     def process_incoming(self):
         if self.engine is None:
             return

@@ -319,13 +319,18 @@ def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost"):
             pass
 
 
-def receive_save_file(host, port, name="LobbyClient", timeout=60.0, save_dir_candidates=None):
+def receive_save_file(host, port, name="LobbyClient", timeout=60.0, save_dir_candidates=None, on_connected=None):
     """Connect, pump, and report an inbound save + where it was written.
 
     Returns ``(slot, path)`` once a ``SAVE_PUSH`` completes and is written to
     disk by ``game_hooks.receive_save``. The write-target resolution is
     game-agnostic (pure filesystem) but defaults to the real save folder when
     no candidates are injected.
+
+    A ``SAVE_REQUEST`` is sent right after WELCOME so a late joiner receives
+    the save the host shared before they connected (the server caches it).
+    ``on_connected()``, if given, is invoked once after WELCOME/request so the
+    caller can tell the user they are actually in the lobby.
     """
     log = []
     client = MultiplayerClient(client_name=name, notify=log.append)
@@ -341,6 +346,9 @@ def receive_save_file(host, port, name="LobbyClient", timeout=60.0, save_dir_can
             time.sleep(0.05)
         else:
             raise RuntimeError("timed out waiting for WELCOME")
+        client.request_save()
+        if on_connected is not None:
+            on_connected()
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             client.process_incoming()

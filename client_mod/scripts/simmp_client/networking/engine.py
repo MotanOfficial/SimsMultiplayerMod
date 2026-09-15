@@ -231,6 +231,9 @@ class ClientEngine:
     def send_save_push(self, slot, seq, total, size, data):
         return self.send_message(msg.make_save_push(slot, seq, total, size, data))
 
+    def send_save_request(self):
+        return self.send_message(msg.make_save_request())
+
     def reconnect(self):
         """Re-establish the connection in place, resending un-acked events.
 

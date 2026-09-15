@@ -1,9 +1,17 @@
 """Per-message handlers for the server side of the simmp protocol."""
 
+import base64
+import os
+import tempfile
 import time
 
 from simmp import messages as msg
-from simmp.constants import CLOCK_SPEED_PAUSED, DEFAULT_ROOM_ID, PROTOCOL_VERSION
+from simmp.constants import (
+    CLOCK_SPEED_PAUSED,
+    DEFAULT_ROOM_ID,
+    MAX_SAVE_CHUNK_BYTES,
+    PROTOCOL_VERSION,
+)
 
 ERR_ALREADY_REGISTERED = "ALREADY_REGISTERED"
 ERR_NOT_REGISTERED = "NOT_REGISTERED"
@@ -35,9 +43,16 @@ class Handlers:
             "INTERACTION_REQUEST": self._handle_interaction_request,
             "INTERACTION_END": self._handle_interaction_end,
             "SAVE_PUSH": self._handle_save_push,
+            "SAVE_REQUEST": self._handle_save_request,
             "TIME_READY": self._handle_time_ready,
             "TIME_SPEED": self._handle_time_speed,
         }
+        # Per-room cache of the last completed save push, so a player who
+        # joins after the host shared still receives the save immediately
+        # instead of waiting for a re-share. Values:
+        #   {"slot", "origin", "path", "size", "total", "received", "open"}
+        self._save_caches = {}
+        self._save_cache_dir = tempfile.mkdtemp(prefix="simmp-save-cache-")
 
     def get(self, message_type):
         return self._handlers.get(message_type)
@@ -642,17 +657,20 @@ class Handlers:
         seq = payload["seq"]
         total = payload["total"]
         size = payload["size"]
+        chunk = _decode_chunk(payload["data"])
+        self._cache_save_chunk(room_id, slot, seq, total, size, chunk, conn.player_id)
 
         # Relay every chunk to the rest of the room, then ack the sender with
         # the number of OTHER players that got it. A single player alone in the
         # room still receives the `reached=0` ack so the push protocol can
-        # finish cleanly (the save is then written by its own mod, if any).
+        # finish cleanly (the save is then written by its own mod, if any), and
+        # the cached copy lets players who connect later still retrieve it.
         relay = msg.make_save_push(
             slot,
             seq,
             total,
             size,
-            _decode_chunk(payload["data"]),
+            chunk,
             origin=conn.player_id,
         )
         members = server.session.get_room(room_id)
@@ -673,6 +691,81 @@ class Handlers:
             exclude={conn.player_id},
         )
         await conn.send(msg.make_save_ack(slot, True, len(peers)))
+
+    def _cache_save_chunk(self, room_id, slot, seq, total, size, chunk, origin):
+        """Accumulate one SAVE_PUSH chunk into the room's cached save file.
+
+        The cache holds only the *latest* completed slot per room. Starting a
+        new slot (or a changed chunk shape) resets the file.
+        """
+        entry = self._save_caches.get(room_id)
+        if entry is None or entry.get("slot") != slot or entry.get("total") != total or entry.get("size") != size:
+            self._close_save_cache(entry)
+            path = os.path.join(self._save_cache_dir, room_id, slot)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            entry = {
+                "slot": slot,
+                "origin": origin,
+                "path": path,
+                "size": size,
+                "total": total,
+                "received": 0,
+                "open": True,
+                "handle": open(path, "wb"),
+            }
+            self._save_caches[room_id] = entry
+        if not entry["open"]:
+            return
+        entry["handle"].write(chunk)
+        entry["received"] = seq
+        if seq >= total:
+            self._close_save_cache(entry)
+
+    @staticmethod
+    def _close_save_cache(entry):
+        if not entry:
+            return
+        try:
+            if entry.get("open"):
+                entry["handle"].close()
+        finally:
+            entry["open"] = False
+
+    async def _handle_save_request(self, conn, frame):
+        """Replay the room's cached save to a player (e.g. a late joiner)."""
+        if not await self._require_registered(conn, "requesting save files"):
+            return
+        room_id = conn.room_id
+        entry = self._save_caches.get(room_id)
+        # Only replay a fully-received save (handle closed). A partial cache
+        # belongs to an in-flight push that is still broadcasting to the room.
+        if not entry or entry.get("open") or not os.path.isfile(entry["path"]):
+            return
+        try:
+            with open(entry["path"], "rb") as handle:
+                data = handle.read()
+        except OSError:
+            return
+        slot = entry["slot"]
+        total = max(1, (len(data) + MAX_SAVE_CHUNK_BYTES - 1) // MAX_SAVE_CHUNK_BYTES)
+        for seq in range(1, total + 1):
+            await conn.send(
+                msg.make_save_push(
+                    slot,
+                    seq,
+                    total,
+                    len(data),
+                    data[(seq - 1) * MAX_SAVE_CHUNK_BYTES : seq * MAX_SAVE_CHUNK_BYTES],
+                    origin=entry.get("origin"),
+                )
+            )
+        self._server.logger.info(
+            "[MP][SYNC] Replayed cached save %r (%.1f KiB) to player %s in room %s",
+            slot,
+            len(data) / 1024.0,
+            conn.player_id,
+            room_id,
+        )
 
 
 def _decode_chunk(data):
