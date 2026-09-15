@@ -551,6 +551,71 @@ of only wearing a label.
   via the alarm tick; confirm the room broadcasts match the expected
   gate → open → stored speed flow.
 
+## M13 - Split-zone worlds (DONE)
+
+Each connected player effectively owns a private copy of the room's world
+space per zone: the server partitions the object catalog, ownership, the
+interaction table and the world-delta sequence by **zone** inside a room, and
+routes all world/claim/interaction traffic zone-scoped. This fixes the
+M7-M12 "two players in different zones smear a single shared world" problem
+(travel alone overwrote everyone's catalog) without breaking the common
+same-zone case.
+
+- [x] Global protocol: `zone_id` added as an optional field (int) to
+  `OBJECT_CLAIM`, `OBJECT_RELEASE`, `OBJECT_UPDATE`, `WORLD_STATE`,
+  `WORLD_DELTA`, `OBJECT_OWNERSHIP`, `INTERACTION_REQUEST`, `INTERACTION_END`,
+  `INTERACTION_START`, `INTERACTION_FREE`, `INTERACTION_STATE`. Additive only,
+  no version bump (still v4). `simmp/messages.py` builders and
+  `constants.OPTIONAL_PAYLOAD_FIELDS` updated together.
+- [x] Server store (`server/state/session.py`): world objects +
+  per-zone `world_seq`, interactions, and cooldowns keyed by `(room_id,
+  zone_id)`; helpers `player_zone` (ready zone, else presence zone),
+  `_zone_key`, `dominant_room_zone`, `release_player_zone`. Expire/scan
+  methods carry zone tuples so the reaper and ghost eviction stay
+  zone-scoped.
+- [x] Server routing (`networking/server.py` + `protocol/handlers.py`):
+  `broadcast_zone(room_id, zone_id, message)` delivers to members whose
+  `player_zone` is `None` or equals `zone_id`, so unknown-zone (still-gated)
+  members keep receiving everything for bootstrap. Claim/update/interaction
+  handlers resolve the writer's zone (`_zone_of`: payload `zone_id` else
+  `player_zone`) and stamp it on broadcasts.
+- [x] **Travel flip auto-release**: on `TIME_READY` announcing a different
+  zone, the server releases everything the departed player held in the old
+  zone (`OBJECT_OWNERSHIP owner=null` + `INTERACTION_FREE`, zone-stamped),
+  then sends the traveler a fresh `WORLD_STATE` + `INTERACTION_STATE` for the
+  new zone. The clock gate stays room-level (single save clock); re-gating on
+  zone change is unchanged.
+- [x] Client (`state/world.py`, `state/interactions.py`, `state/session.py`):
+  both mirrors track a `zone_id`; `WORLD_STATE` for another zone replaces the
+  mirror wholesale (travel snapshot), `WORLD_DELTA`/ownership/interactions
+  from another zone are dropped. Writes (`claim`/`release`/`update`/interact)
+  carry the live zone id from `game_hooks.current_zone_id()`.
+- [x] In-game notifications (`notifications.py` + `commands/cheat_commands.py`):
+  the toast decision logic lives in a pure, offline-testable module now.
+  New toasts: travel invite/begin/complete/abort, remote interaction start on
+  a sim you own ("Alice is Read on sim:..."), remote ownership takeover
+  ("Alice took over sim:..."), reconnecting, with per-bucket cooldowns so
+  broadcast bursts don't flood the screen. Existing connect/disconnect/
+  room/save/error toasts preserved.
+- [x] Tests: rewrote `test_world.py`/`test_interactions.py` for zone-aware
+  mirrors, added `tests/test_zones.py` (isolated zones share no world,
+  unknown-zone bootstrap delivery, same-zone sharing + flip releases), and
+  `tests/test_notifications.py` (toast mapping). Live split-zone smoke
+  `tests/smoke/smoke_split_zone.py` runs the real server binary and asserts
+  the full cross-zone + flip-release flow (11/11). Full suite:
+  `python tests/run_tests.py` -> **239 tests OK**.
+- [ ] In-game verification (can only be done in-game, confirmed live already):
+  a solo game travel with the game's own UI flips zones and releases holdings
+  correctly (observed in a live run: `released 7 object(s), 6 interaction(s)`
+  then re-claim + re-interact in the new zone). The real two-client
+  split-zone scenario (both in different zones at once) still needs two game
+  instances on a LAN.
+- [ ] Accepted v1 limitation: the clock/readiness gate is room-wide, not
+  per-zone; one save = one shared clock, so "same household playing in two
+  zones simultaneously" is not achievable in a single save regardless of
+  zone-scoping. What zone-scoping delivers is isolation (no cross-zone
+  smearing) and a clean solo-travel/rejoin.
+
 ## Out of scope until explicit decision
 
 - Full DNA/lot/room package sharing (needs a large asset protocol and

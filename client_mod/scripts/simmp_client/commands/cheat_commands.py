@@ -36,6 +36,7 @@ from simmp.constants import CLOCK_SPEED_NORMAL, CLOCK_SPEED_PAUSED, MAX_CLOCK_SP
 from simmp_client import ui as mp_ui
 from simmp_client.connectivity import MultiplayerClient
 from simmp_client.hooks import game_hooks
+from simmp_client.notifications import ToastFilter
 
 
 def _console_output(line, connection=None):
@@ -49,28 +50,24 @@ def _console_output(line, connection=None):
 _ui = mp_ui.GameUI(enabled=True, console=_console_output)
 
 
+_toast_filter = ToastFilter()
+
+
 def _notify(line):
     _console_output(line)
-    toast = _toast_for(line)
+    toast = _toast_filter.pick(
+        line,
+        self_player_id=_client.session.player_id if _client.session else None,
+        roster=_client.session.room_players if _client.session else None,
+        world=_client.session.world if _client.session else None,
+    )
     if toast:
         _ui.toast(toast)
 
 
 def _toast_for(line):
-    """Pick which status lines deserve an in-game toast (None for the rest)."""
-    if line.startswith("[MP][ERROR]"):
-        return line
-    if "[MP][NET] Connected to" in line:
-        return "[MP] Connected to the server"
-    if "[MP][NET] Disconnected" in line:
-        return "[MP] Disconnected from the server"
-    if "[MP][ROOM] Player " in line and (" joined " in line or " left " in line):
-        return line
-    if "[MP][SAVE] received" in line:
-        return line
-    if "SAVE_ACK" in line and "reached" in line:
-        return line
-    return None
+    """Back-compat alias for the pure toast matcher (kept for imports)."""
+    return _toast_filter.pick(line)
 
 
 _client = MultiplayerClient(notify=_notify)

@@ -1,4 +1,4 @@
-# Sims 4 Multiplayer Mod (M6)
+# Sims 4 Multiplayer Mod (M13)
 
 An independent, client/server multiplayer layer for **The Sims 4**. The mod
 runs inside each game instance; a standalone Python server coordinates the
@@ -45,6 +45,17 @@ SimSync, or any non-stdlib Python package.
 > `reconnect_backoff_max`, `mp.auto_reconnect on|off`), restoring ownership
 > via the ghost scheme or the reclaim fallback, never blocking the game
 > thread.
+> M7-M12 = live sim replication: household-wide world/interaction samplers
+> with auto-claim (`sim:<id>` keys), receive-side movement + interaction
+> execution on the mirrored sim, save-file sync (`mp.save_push`),
+> shared-time clock gate (`mp.pause`/`mp.resume`/`mp.speed`), and the dev
+> console GUI. See `docs/milestones.md`.
+> M13 = split-zone worlds: the object catalog, ownership, interactions and
+> world-delta sequence are partitioned per (room, zone) so players in
+> different zones never share or smear each other's world; traveling auto-
+> releases the departed players holdings in the old zone and resyncs the new
+> one. Protocol stays v4 (`zone_id` is an optional field on the world/claim/
+> interaction messages).
 
 ## Layout
 
@@ -166,7 +177,7 @@ the game was restarted after installing the mod.
 ## Tests
 
 ```bash
-python tests/run_tests.py      # 155 tests, stdlib only
+python tests/run_tests.py      # 239 tests, stdlib only
 python -m pytest -q            # optional
 ```
 
@@ -176,7 +187,7 @@ See `docs/m1-testing.md` for the full matrix and live smoke steps.
 
 - `docs/architecture.md` - layering, threading model, message flow
 - `docs/protocol.md` - wire format (v4), message catalogue, reliability
-- `docs/milestones.md` - roadmap (M1-M6 done)
+- `docs/milestones.md` - roadmap (M1-M13 done)
 - `docs/sims4-research.md` - confirmed public modding facts (packaging, alarms, commands, UI)
 - `docs/m1-testing.md` - unit + live verification
 
