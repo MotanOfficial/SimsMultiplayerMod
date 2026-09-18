@@ -7,7 +7,6 @@ import threading
 import time
 import unittest
 
-from simmp_client.connectivity import MultiplayerClient
 from tools import lobby
 
 
@@ -107,17 +106,32 @@ class PushAndReceiveTests(unittest.TestCase):
         return path
 
     def test_push_reaches_connected_player(self):
-        log = []
-        player = MultiplayerClient(client_name="Player1", notify=log.append)
-        self.assertTrue(player.connect("127.0.0.1", self.server.actual_port))
-        try:
-            _wait(lambda: (player.process_incoming() or True) and player.session.player_id is not None)
-            source = self._write_save()
-            ok, reached = lobby.push_save_file(source, "127.0.0.1", self.server.actual_port)
-            self.assertTrue(ok)
-            self.assertEqual(reached, 1)
-        finally:
-            player.disconnect()
+        slot = "multi_chunk_%d.save" % os.getpid()
+        payload = os.urandom(3 * 512 * 1024 + 137)
+        source = os.path.join(self.save_dir, slot)
+        with open(source, "wb") as handle:
+            handle.write(payload)
+        received = {}
+
+        def joiner():
+            received["result"] = lobby.receive_save_file(
+                "127.0.0.1", self.server.actual_port, timeout=25.0
+            )
+
+        thread = threading.Thread(target=joiner, daemon=True)
+        thread.start()
+        # let the joiner connect and register before pushing
+        time.sleep(1.0)
+        ok, reached = lobby.push_save_file(source, "127.0.0.1", self.server.actual_port)
+        self.assertTrue(ok)
+        self.assertEqual(reached, 1)
+        thread.join(timeout=25.0)
+        self.assertFalse(thread.is_alive(), "joiner never completed the multi-chunk save")
+        got_slot, path = received["result"]
+        self.assertEqual(got_slot, slot)
+        self.assertTrue(os.path.isfile(path), "multi-chunk save was never written")
+        with open(path, "rb") as handle:
+            self.assertEqual(handle.read(), payload, "joiner received a truncated/bad save")
 
     def test_push_solo_reaches_zero(self):
         source = self._write_save()
@@ -132,7 +146,7 @@ class PushAndReceiveTests(unittest.TestCase):
         slot = "late_join_%d.save" % os.getpid()
         with open(os.path.join(self.save_dir, slot), "wb") as handle:
             handle.write(b"W")
-        source = self._write_save(name=slot, size=300 * 1024)
+        source = self._write_save(name=slot, size=1024 * 1024 + 3)
         ok, reached = lobby.push_save_file(source, "127.0.0.1", self.server.actual_port)
         self.assertTrue(ok)
         self.assertEqual(reached, 0, "no peer was connected at push time")
@@ -151,6 +165,7 @@ class PushAndReceiveTests(unittest.TestCase):
         self.assertEqual(got_slot, slot)
         self.assertTrue(os.path.isfile(path))
         self.assertEqual(os.path.dirname(path), self.save_dir)
+        self.assertTrue(os.path.getsize(path) == 1024 * 1024 + 3, "cached replay was truncated")
 
     def test_receive_save_lands_in_saves_folder(self):
         slot = "lobby_test_%d.save" % os.getpid()
@@ -158,7 +173,7 @@ class PushAndReceiveTests(unittest.TestCase):
         # the temp saves folder deterministically instead of scoring by count
         with open(os.path.join(self.save_dir, slot), "wb") as handle:
             handle.write(b"W")
-        source = self._write_save(name=slot, size=300 * 1024)
+        source = self._write_save(name=slot, size=1024 * 1024 + 7000)
         received = {}
 
         def joiner():
@@ -179,6 +194,8 @@ class PushAndReceiveTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(path))
         self.assertEqual(os.path.dirname(path), self.save_dir)
         self.assertTrue(reached >= 1)
+        with open(path, "rb") as handle:
+            self.assertEqual(handle.read(), b"Z" * (1024 * 1024 + 7000), "save was truncated on disk")
 
 
 if __name__ == "__main__":

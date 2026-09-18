@@ -114,6 +114,7 @@ class LauncherApp(object):
         self.slot_meta = None
         self.log_queue = queue.Queue()
         self._pending_state = {}
+        self._connected_players = 0
 
         _load_app_modules()
         self._build_widgets()
@@ -606,6 +607,7 @@ class LauncherApp(object):
             self.server.stop()
             self.server = None
         self.synced = False
+        self._connected_players = 0
         self.btn_start_lobby.config(state="normal")
         self.btn_stop_lobby.config(state="disabled")
         self.lobby_status.config(text="Lobby stopped", fg=MUTED)
@@ -618,6 +620,7 @@ class LauncherApp(object):
     def _apply_status(self, data):
         players = data.get("players") or []
         connected = [p for p in players if p.get("connected")]
+        self._connected_players = len(connected)
         if self.server is not None and self.server.thread_alive():
             self.lobby_status.config(
                 text="Lobby open at %s:%s - %d player(s) connected%s" % (
@@ -634,6 +637,8 @@ class LauncherApp(object):
                 self._update_host_start_button()
 
     def _player_count(self):
+        if hasattr(self, "_connected_players"):
+            return self._connected_players
         try:
             with open(STATUS_FILE, "r", encoding="utf-8") as handle:
                 data = json.load(handle)
@@ -717,12 +722,29 @@ class LauncherApp(object):
                     on_connected=lambda: self._post(lambda: self._note(
                         "Connected as %s - save request sent to the host's lobby."
                         % name)),
+                    on_line=lambda line: self._post(lambda l=line: self._join_line(l)),
                 )
                 self._post(lambda: self._on_join_done(slot, path))
             except Exception as exc:  # noqa: BLE001
                 self._post(lambda e=exc: self._on_join_done(None, None, e))
         self.join_thread = threading.Thread(target=work, daemon=True)
         self.join_thread.start()
+
+    def _join_line(self, line):
+        """Surface one joiner-side client log line (save progress/errors)."""
+        stripped = line.strip()
+        if "[MP][SAVE]" in line or "[MP][ERROR]" in line:
+            if "Saved" in line:
+                self.join_status.config(text=stripped, fg=GREEN)
+            elif "reached=" in line or "SAVE_PUSH" in line:
+                self.join_status.config(text=stripped, fg=GREEN)
+            elif "[MP][ERROR]" in line:
+                self.join_status.config(text=stripped, fg=RED)
+                self._note(stripped, kind="error")
+            else:
+                self._note(stripped)
+        else:
+            self._note(stripped)
 
     def _on_join_done(self, slot, path, exc=None):
         self.btn_join.config(state="normal", text="Join lobby")

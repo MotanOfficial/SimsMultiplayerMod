@@ -69,6 +69,34 @@ class LauncherGuiTests(unittest.TestCase):
         self.assertNotIn("free variable 'exc'", text)
         self.assertIn("normal", app.btn_join.cget("state"))
 
+    def test_host_start_button_uses_inmemory_player_count(self):
+        app = self._app()
+        # unsynced + no players -> disabled even though a stale status file
+        # might still exist on disk (regression: the old code re-read the file)
+        app.synced = False
+        app._connected_players = 0
+        app._update_host_start_button()
+        self.assertEqual(app.btn_host_start.cget("state"), "disabled")
+        # synced + player connected in-memory -> enabled
+        app.synced = True
+        app._connected_players = 1
+        app._update_host_start_button()
+        self.assertEqual(app.btn_host_start.cget("state"), "normal")
+        # player leaves (in-memory only; no file dependency) -> disabled again
+        app._connected_players = 0
+        app._update_host_start_button()
+        self.assertEqual(app.btn_host_start.cget("state"), "disabled")
+
+    def test_join_line_surfaces_save_progress_and_errors(self):
+        app = self._app()
+        app._join_line("[MP][SAVE] SAVE_PUSH slot.save 2/4 (more)")
+        self.assertIn("2/4", app.join_status.cget("text"))
+        app._join_line("[MP][SAVE] Saved 'slot.save' -> C:\\saves\\slot.save")
+        self.assertIn("Saved", app.join_status.cget("text"))
+        app._join_line("[MP][ERROR] Save write failed: OSError: disk full")
+        self.assertIn("Save write failed", app.join_status.cget("text"))
+        self.assertIn("disk full", app.log_view.get("1.0", "end"))
+
     def test_selftest_install_lands_full_mod(self):
         # _run_selftest drives the same code path as the "Install mod" button
         # (scripts/bundle-root resolution + build_script_mod.cmd_dev) without

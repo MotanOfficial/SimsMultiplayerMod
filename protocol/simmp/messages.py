@@ -284,8 +284,12 @@ def make_save_push(slot, seq, total, size, data, origin=None):
     return build_message("SAVE_PUSH", payload)
 
 
-def make_save_ack(slot, ok, reached, message=None):
+def make_save_ack(slot, ok, reached, seq=None, total=None, message=None):
     payload = {"slot": slot, "ok": bool(ok), "reached": reached}
+    if seq is not None:
+        payload["seq"] = seq
+    if total is not None:
+        payload["total"] = total
     if message is not None:
         payload["message"] = message
     return build_message("SAVE_ACK", payload)

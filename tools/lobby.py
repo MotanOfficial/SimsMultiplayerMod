@@ -274,6 +274,8 @@ def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost"):
     with open(path, "rb") as handle:
         payload = handle.read()
     slot = slot or os.path.basename(path)
+    chunk_size = 512 * 1024
+    total = (len(payload) + chunk_size - 1) // chunk_size if payload else 1
     log = []
     client = MultiplayerClient(client_name=name, notify=log.append)
     if not client.connect(host, port):
@@ -289,16 +291,42 @@ def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost"):
         else:
             raise RuntimeError("timed out waiting for WELCOME")
 
-        worker = threading.Thread(
-            target=lambda: client.push_save_file(slot, payload), daemon=True, name="save-push"
-        )
+        sent_holder = {}
+
+        def _push():
+            sent_holder["result"] = client.push_save_file(slot, payload, chunk_size=chunk_size)
+
+        worker = threading.Thread(target=_push, daemon=True, name="save-push")
         worker.start()
+
+        # Let the worker queue every chunk first. The engine flushes the socket
+        # synchronously from the worker's send lock, so once the worker returns
+        # every chunk has hit the wire; only then do acks make sense.
+        deadline = time.monotonic() + timeout
+        while worker.is_alive() and time.monotonic() < deadline:
+            client.process_incoming()
+            time.sleep(0.05)
+        if worker.is_alive():
+            raise RuntimeError("timed out queuing save chunks for the lobby")
+        sent, queued_total = sent_holder.get("result", (0, total))
+        if sent != queued_total:
+            raise RuntimeError(
+                "push aborted after %s/%s chunks (send failure? disconnect?)" % (sent, queued_total)
+            )
+
+        # Now wait for the ack of the FINAL chunk (seq == total). The server
+        # acks every chunk it relays, so acking the first chunk alone does not
+        # mean the file transfer finished.
         ack_line = None
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             client.process_incoming()
             for line in list(log):
-                if "SAVE_ACK" in line and "reached=" in line:
+                if (
+                    "SAVE_ACK" in line
+                    and "reached=" in line
+                    and "seq=%s/%s" % (total, total) in line
+                ):
                     ack_line = line
                     break
             if ack_line is not None:
@@ -306,7 +334,7 @@ def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost"):
             time.sleep(0.05)
         client.disconnect()
         if ack_line is None:
-            raise RuntimeError("no SAVE_ACK within %.0fs" % timeout)
+            raise RuntimeError("no final-chunk SAVE_ACK within %.0fs" % timeout)
         reached = [
             int(token.split("=", 1)[1]) for token in ack_line.split() if token.startswith("reached=")
         ]
@@ -319,7 +347,7 @@ def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost"):
             pass
 
 
-def receive_save_file(host, port, name="LobbyClient", timeout=60.0, save_dir_candidates=None, on_connected=None):
+def receive_save_file(host, port, name="LobbyClient", timeout=60.0, save_dir_candidates=None, on_connected=None, on_line=None):
     """Connect, pump, and report an inbound save + where it was written.
 
     Returns ``(slot, path)`` once a ``SAVE_PUSH`` completes and is written to
@@ -330,10 +358,21 @@ def receive_save_file(host, port, name="LobbyClient", timeout=60.0, save_dir_can
     A ``SAVE_REQUEST`` is sent right after WELCOME so a late joiner receives
     the save the host shared before they connected (the server caches it).
     ``on_connected()``, if given, is invoked once after WELCOME/request so the
-    caller can tell the user they are actually in the lobby.
+    caller can tell the user they are actually in the lobby. ``on_line(line)``,
+    if given, receives every client ``[MP][...]`` log line as it happens so the
+    caller can surface save-transfer progress/errors in its own UI.
     """
     log = []
-    client = MultiplayerClient(client_name=name, notify=log.append)
+
+    def _notify(line):
+        log.append(line)
+        if on_line is not None:
+            try:
+                on_line(line)
+            except Exception:
+                pass
+
+    client = MultiplayerClient(client_name=name, notify=_notify)
     if not client.connect(host, port):
         client.disconnect()
         raise RuntimeError("connect() returned False; is the lobby running?")

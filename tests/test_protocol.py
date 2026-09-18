@@ -454,6 +454,12 @@ class SaveMessageBuilderTests(unittest.TestCase):
         with_message = msg.make_save_ack("slot_00000001.save", False, 0, message="disk full")
         validate_message(with_message)
         self.assertEqual(with_message["payload"]["message"], "disk full")
+        # the server stamps chunk identity so the pusher can wait for the ack
+        # of the FINAL chunk instead of the first (`seq`/`total` are optional)
+        stamped = msg.make_save_ack("slot_00000001.save", True, 1, seq=7, total=7)
+        validate_message(stamped)
+        self.assertEqual(stamped["payload"]["seq"], 7)
+        self.assertEqual(stamped["payload"]["total"], 7)
 
 
 class SaveValidationTests(unittest.TestCase):

@@ -861,11 +861,13 @@ class MultiplayerClient:
         elif message_type == "SAVE_ACK":
             self._log(
                 "SAVE",
-                "SAVE_ACK %s ok=%s reached=%s%s"
+                "SAVE_ACK %s ok=%s reached=%s seq=%s/%s%s"
                 % (
                     payload["slot"],
                     payload["ok"],
                     payload["reached"],
+                    payload.get("seq", "?"),
+                    payload.get("total", "?"),
                     (" (%s)" % payload["message"]) if payload.get("message") else "",
                 ),
             )

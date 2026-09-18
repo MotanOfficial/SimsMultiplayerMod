@@ -780,7 +780,7 @@ class Handlers:
             relay,
             exclude={conn.player_id},
         )
-        await conn.send(msg.make_save_ack(slot, True, len(peers)))
+        await conn.send(msg.make_save_ack(slot, True, len(peers), seq=seq, total=total))
 
     def _cache_save_chunk(self, room_id, slot, seq, total, size, chunk, origin):
         """Accumulate one SAVE_PUSH chunk into the room's cached save file.

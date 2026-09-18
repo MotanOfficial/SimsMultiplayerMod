@@ -191,7 +191,7 @@ OPTIONAL_PAYLOAD_FIELDS = {
     INTERACTION_FREE: ("zone_id",),
     INTERACTION_STATE: ("zone_id",),
     SAVE_PUSH: ("origin",),
-    SAVE_ACK: ("message",),
+    SAVE_ACK: ("message", "seq", "total"),
     FUNDS_SYNC: ("player_id",),
     TIME_SYNC: ("ticks", "player_id", "gate"),
     TIME_READY: ("player_id",),

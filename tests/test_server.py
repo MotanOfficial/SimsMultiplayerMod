@@ -819,6 +819,8 @@ class SavePushFlowTests(unittest.TestCase):
             self.assertEqual(ack["payload"]["slot"], "slot_00000001.save")
             self.assertTrue(ack["payload"]["ok"])
             self.assertEqual(ack["payload"]["reached"], 1)
+            self.assertEqual(ack["payload"]["seq"], 1)
+            self.assertEqual(ack["payload"]["total"], 2)
 
         self.run_flow(_with_server(flow))
 
@@ -832,6 +834,8 @@ class SavePushFlowTests(unittest.TestCase):
             ack = await alice.wait_for_type("SAVE_ACK")
             self.assertTrue(ack["payload"]["ok"])
             self.assertEqual(ack["payload"]["reached"], 0)
+            self.assertEqual(ack["payload"]["seq"], 1)
+            self.assertEqual(ack["payload"]["total"], 1)
             self.assertFalse(any(m["type"] == "SAVE_PUSH" for m in alice.messages))
 
         self.run_flow(_with_server(flow))
