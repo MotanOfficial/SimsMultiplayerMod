@@ -1,6 +1,8 @@
 import unittest
+from unittest import mock
 
 from simmp_client import presence
+from simmp_client.connectivity import MultiplayerClient
 from simmp_client.hooks import game_hooks
 from simmp_client.state.session import LocalSession
 
@@ -28,6 +30,32 @@ class GameHooksOfflineTests(unittest.TestCase):
     def test_hooks_noop_outside_game(self):
         self.assertIsNone(game_hooks.add_repeating_real_time_alarm(object(), 0.5, lambda *a: None))
         self.assertIsNone(game_hooks.add_one_off_real_time_alarm(object(), 1.0, lambda *a: None))
+
+    def test_alarm_unavailable_is_throttled(self):
+        # Outside the game the alarm can never be created; `process_incoming`
+        # (and thus `_start_alarm`) runs many times per second in the launcher,
+        # so the ERROR must be logged once, not once per retry.
+        lines = []
+        client = MultiplayerClient(notify=lines.append)
+        with mock.patch.object(
+            game_hooks,
+            "add_one_off_real_time_alarm",
+            return_value=None,
+        ):
+            for _ in range(25):
+                client._start_alarm()
+        alarm_errors = [line for line in lines if "sync alarm unavailable" in line]
+        self.assertEqual(len(alarm_errors), 1, "alarm failure was logged on every retry")
+        # after the throttle window elapses, one more line is allowed
+        client._last_alarm_fail_log = 0.0
+        client._start_alarm()
+        alarm_errors = [line for line in lines if "sync alarm unavailable" in line]
+        self.assertEqual(len(alarm_errors), 2)
+        client._last_alarm_fail_log = 0.0
+        for _ in range(5):
+            client._start_alarm()
+        alarm_errors = [line for line in lines if "sync alarm unavailable" in line]
+        self.assertEqual(len(alarm_errors), 3)
         self.assertIsNone(game_hooks.sample_current_zone())
         self.assertIsNone(game_hooks.cancel_alarm(None))
 

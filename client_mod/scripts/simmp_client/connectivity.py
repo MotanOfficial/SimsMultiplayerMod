@@ -61,6 +61,7 @@ class MultiplayerClient:
         self._next_reconnect_at = 0.0
         self._alarm_started_at = 0.0
         self._last_alarm_tick = 0.0
+        self._last_alarm_fail_log = 0.0
         self._last_tick_error = None
         self.save_inbox = SaveInbox()
         self.time_gate = True
@@ -898,7 +899,10 @@ class MultiplayerClient:
         self._alarm_started_at = time.time()
         self._alarm_handle = game_hooks.add_one_off_real_time_alarm(self, 0.5, self._on_alarm_chained)
         if self._alarm_handle is None:
-            self._log("ERROR", "sync alarm unavailable; will retry on next tick/command")
+            now = time.time()
+            if now - self._last_alarm_fail_log >= 10.0:
+                self._last_alarm_fail_log = now
+                self._log("ERROR", "sync alarm unavailable; will retry on next tick/command")
         else:
             self._log("NET", "sync alarm started")
 
