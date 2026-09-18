@@ -1,5 +1,5 @@
 {
- "version": "2026-09-18-57c33a6",
+ "version": "2026-09-18-0822a9f",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -23,7 +23,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/connectivity.py",
-   "sha256": "cb7b20f9c9e272945c73bb7ed167bc2e6fe6263b327deba159c901dd3ad161f9"
+   "sha256": "469c1d4a5206c4c597463020d18cadcabc02664d14eff6a3e5dce9085e7171d1"
   },
   {
    "path": "client_mod/scripts/simmp_client/hooks/__init__.py",
