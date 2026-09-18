@@ -821,6 +821,41 @@ the exe).
   `python tests/run_tests.py` -> **318 tests OK**, plus a frozen-bundle
   selftest (`SIM4_MP_SELFTEST=<dir>`) and a public-repo check.
 
+## M18b - Live-trial bugfix: multi-chunk save push completed too early (DONE)
+
+First real two-PC trial (host = Ashlyne's PC over Radmin VPN, joiner = Motan's
+PC): the host's "Save synced to 1 player(s)" never turned the Start Game button
+green and the joiner hung on "Connecting to ..." until the 120s timeout fired.
+Root cause was in the host-side shortcut, not the server:
+
+- The lobby server acks **every** `SAVE_PUSH` chunk it relays. The host helper
+  (`tools/lobby.py::push_save_file`) treated *any* `SAVE_ACK` as completion and
+  called `client.disconnect()` immediately - usually right after chunk 1/4.
+- The engine's sender is synchronous under a send lock, but the *receive* pump
+  is on the caller; killing the client after the first ack aborted the queue
+  before the last chunk ever left the socket. The joiner got 3/4 chunks,
+  `SaveInbox.feed` never reached `total/total`, no `Saved` line, so the GUI
+  timed out with the button still greyed.
+- `push_save_file` only sees that the server **broadcast** to one peer
+  (`reached=1`); it never learns whether the joiner received everything.
+
+Fix (commit `57c33a6`, manifest `2026-09-18-57c33a6`):
+
+- `SAVE_ACK` now carries `seq`/`total` (optional, backward compatible).
+  `push_save_file` waits for the worker to finish queueing **all** chunks,
+  verifies `sent == queued_total`, then waits for the ack of the *final* chunk
+  (`seq=total/total`) before disconnecting.
+- Host Start button uses the live in-memory connected-player count (updated by
+  `_apply_status` from the server callback) instead of re-reading a possibly
+  stale `status.json` from disk, and drops to disabled when the room empties.
+- `receive_save_file` gained an `on_line` callback so the join GUI surfaces
+  `[MP][SAVE]` progress and `[MP][ERROR]` lines in real time while the file
+  transfers.
+- Regression coverage: lobby tests now push >1 MiB multi-chunk saves and
+  byte-verify the received file; full suite **320 tests OK**; a two-process
+  end-to-end repro (real host/join binaries over a real TCP socket) confirmed
+  `4/4 (complete)` + `Saved '...'` after the fix.
+
 ## Out of scope until explicit decision
 
 - Full DNA/lot/room package sharing (needs a large asset protocol and
