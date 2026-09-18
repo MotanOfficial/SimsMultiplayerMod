@@ -1,5 +1,5 @@
 {
- "version": "2026-09-18-0822a9f",
+ "version": "2026-09-18-4508cc1",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -163,7 +163,7 @@
   },
   {
    "path": "tools/lobby.py",
-   "sha256": "cd8227a1602dbac191846496df7215b9aa005dc560822673dc02887debcebae0"
+   "sha256": "e0998c782efbb228ff4d8b01e9017780acd03590911099b10ce399545badaf96"
   },
   {
    "path": "tools/save_metadata.py",
