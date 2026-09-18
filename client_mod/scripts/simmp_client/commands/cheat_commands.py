@@ -113,6 +113,27 @@ def install_presence_sampler():
     _client.travel_controller = _travel_controller
 
 
+def configure_build_sync(enabled):
+    """Toggle live lot-object sync (world sampler + destroy applier).
+
+    On = household sims + instanced lot objects (moves/rotations/deletes
+    relay); off = sims only, so build/buy edits stay local.
+    """
+    _client.build_sync = bool(enabled)
+    if _client.build_sync:
+        _client.set_world_sampler(game_hooks.sample_playable_world)
+        _client.set_object_gone_applier(game_hooks.apply_object_gone)
+    else:
+        _client.set_world_sampler(game_hooks.sample_world_objects)
+        _client.set_object_gone_applier(None)
+
+
+def configure_funds_sync(enabled):
+    """Toggle live household-funds sync (sampler + applier)."""
+    _client.funds_sampler = game_hooks.sample_household_funds if enabled else None
+    _client.funds_applier = game_hooks.set_household_funds if enabled else None
+
+
 def get_client():
     return _client
 
@@ -484,3 +505,51 @@ def _mp_ui_test(text="hello from multiplayer", _connection=None):
         "[MP][UI] test toast %sshown%s (in-game only)" % ("" if shown else "not ", reason),
         _connection,
     )
+
+
+@sims4.commands.Command("mp.build_sync", command_type=sims4.commands.CommandType.Cheat)
+def _mp_build_sync(setting="", _connection=None):
+    if setting in ("on", "1", "true", "yes"):
+        configure_build_sync(True)
+        _console_output("[MP][SYNC] build/buy live sync: on", _connection)
+    elif setting in ("off", "0", "false", "no"):
+        configure_build_sync(False)
+        _console_output("[MP][SYNC] build/buy live sync: off", _connection)
+    else:
+        _console_output(
+            "[MP][SYNC] build/buy live sync: %s" % ("on" if _client.build_sync else "off"),
+            _connection,
+        )
+
+
+@sims4.commands.Command("mp.funds_sync", command_type=sims4.commands.CommandType.Cheat)
+def _mp_funds_sync(setting="", _connection=None):
+    if setting in ("on", "1", "true", "yes"):
+        configure_funds_sync(True)
+        _client._funds_baseline = None
+        _console_output("[MP][FUNDS] funds live sync: on", _connection)
+    elif setting in ("off", "0", "false", "no"):
+        configure_funds_sync(False)
+        _console_output("[MP][FUNDS] funds live sync: off", _connection)
+    else:
+        _console_output(
+            "[MP][FUNDS] funds live sync: %s" % ("on" if _client.funds_sampler is not None else "off"),
+            _connection,
+        )
+
+
+@sims4.commands.Command("mp.funds_interval", command_type=sims4.commands.CommandType.Cheat)
+def _mp_funds_interval(seconds="", _connection=None):
+    if seconds:
+        try:
+            value = float(seconds)
+        except ValueError:
+            _console_output("[MP][FUNDS] usage: mp.funds_interval <seconds>", _connection)
+            return
+        if value <= 0:
+            _console_output("[MP][FUNDS] interval must be positive", _connection)
+            return
+        _client.funds_interval = value
+        _console_output("[MP][FUNDS] poll interval: %.1fs" % value, _connection)
+    else:
+        _console_output("[MP][FUNDS] poll interval: %.1fs" % _client.funds_interval, _connection)

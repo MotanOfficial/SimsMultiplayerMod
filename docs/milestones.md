@@ -742,6 +742,34 @@ games instead of living inside each machine's save.
   and delete a lamp and watch them mirror; open CAS on one machine and
   confirm the other's game pauses until you return.
 
+## M17 - Live-world hardening (DONE)
+
+Follow-up to M16: the three M16 limitation items that are solvable in pure
+client code (no in-game hook work needed) are closed.
+
+- [x] **Deferred object destroy**: `OBJECT_GONE` no longer destroys the
+  local copy synchronously. The mirror drops the key immediately, but the
+  game object is destroyed only after `object_gone_delay` (5s) unless the
+  same definition reappears within ~3 units of the old key - a move whose
+  `WORLD_DELTA` was still in flight. This closes the move-vs-delete race
+  (a briefly-missing old key no longer reads as a real delete) and the
+  wrong-destroy of a surviving twin. `connectivity.py`: `_defer_object_gone`,
+  `_maybe_flush_pending_removals`, `_object_reappeared_nearby`.
+- [x] **Funds churn guard**: a `FUNDS_SYNC` whose balance equals the last
+  value the applier actually applied is ignored (echoes cannot fight the
+  applier or force a pointless re-broadcast). `_last_funds_applied` is
+  tracked per applied balance.
+- [x] **Runtime toggles**: `mp.build_sync on|off` (swaps the world sampler
+  between household+lot and sims-only and disables/enables the destroy
+  applier), `mp.funds_sync on|off`, and `mp.funds_interval <seconds>`.
+  Shared `configure_build_sync`/`configure_funds_sync` helpers are also
+  used by `sims4_plugin._apply_config`, so runtime toggles and the
+  startup config can never drift apart.
+- [x] Tests (+3 net): funds echo-ignore + two distinct applies; deferred
+  destroy flushed after the window; destroy cancelled on a nearby same-def
+  reappearance; destroy kept for an unrelated far-away definition. Full
+  suite: `python tests/run_tests.py` -> **301 tests OK**.
+
 ## Out of scope until explicit decision
 
 - Full DNA/lot/room package sharing (needs a large asset protocol and

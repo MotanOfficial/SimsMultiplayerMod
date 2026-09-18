@@ -85,11 +85,19 @@ class MultiplayerClient:
         self.funds_interval = 2.0
         self._funds_baseline = None
         self._last_funds_sent = 0.0
+        self._last_funds_applied = None
         # Lot-object live sync (build/buy moves, deletions, placements).
+        self.build_sync = True
         self._object_gone_applier = None
         self._world_seen_last = None
         self._world_missing_streak = {}
         self._world_tracked_zone = None
+        # Deferred object removal: an OBJECT_GONE (or a locally-detected
+        # missing key) destroys the local copy only after `object_gone_delay`
+        # unless the same object reappears (a move whose WORLD_DELTA is still
+        # in flight briefly drops the old key).
+        self.object_gone_delay = 5.0
+        self._pending_removals = {}
 
     def set_presence_sampler(self, sampler):
         """sampler() -> (zone_id, lot_id) or None. Called on the game thread."""
@@ -768,22 +776,27 @@ class MultiplayerClient:
         elif message_type == "OBJECT_GONE":
             key = payload["key"]
             self.session.world.apply_removal(key, payload.get("zone_id"))
-            self._log("SYNC", "Object removed: %s" % key)
-            applier = self._object_gone_applier
-            if applier is not None:
-                try:
-                    applier([key])
-                except Exception:
-                    pass
+            # Defer the local destroy for a grace window: a move briefly drops
+            # the old key, and the WORLD_DELTA for the new position may still
+            # be in flight. `_maybe_flush_pending_removals` destroys only keys
+            # that did not reappear nearby.
+            self._defer_object_gone(key)
+            self._log("SYNC", "Object removed (destroy deferred): %s" % key)
         elif message_type == "FUNDS_SYNC":
             balance = payload["balance"]
             self._funds_baseline = balance
+            if balance == self._last_funds_applied:
+                # Echo of the value we already applied; do not fight the
+                # applier or re-broadcast.
+                return
             applier = self.funds_applier
             if applier is not None:
                 try:
                     result = applier(balance)
                 except Exception:
                     result = None
+                if result is not None:
+                    self._last_funds_applied = balance
                 self._log("FUNDS", "peer set household balance %s -> %s" % (balance, result))
             else:
                 self._log("FUNDS", "peer set household balance %s" % balance)
@@ -972,6 +985,7 @@ class MultiplayerClient:
             self._maybe_send_world_update()
             self._maybe_sync_funds()
             self._maybe_send_interactions()
+            self._maybe_flush_pending_removals()
             self._maybe_report_travel_ready()
             self._maybe_auto_reconnect()
         except Exception as exc:
@@ -1207,6 +1221,62 @@ class MultiplayerClient:
             if mirror is not None:
                 self.session.world.apply_removal(key)
             self._log("SYNC", "Object removed locally, broadcast gone: %s" % key)
+
+    def _defer_object_gone(self, key):
+        """Queue a local destroy that is cancelled if the object reappeared.
+
+        Both a relayed `OBJECT_GONE` and a locally-detected missing key route
+        through here. The mirror drops the key immediately; the game object is
+        only destroyed once `object_gone_delay` elapses without the same
+        definition showing up near the old position (a move, not a delete).
+        """
+        parsed = game_hooks._parse_object_key(key)
+        self._pending_removals[key] = {"since": time.time(), "parsed": parsed}
+
+    def _object_gone_lane(self, key):
+        """Game-thread invoke of the destroy applier; never raises."""
+        applier = self._object_gone_applier
+        if applier is None:
+            return
+        try:
+            applier([key])
+        except Exception:
+            self._log("ERROR", "object-gone applier failed for %s" % key)
+
+    def _object_reappeared_nearby(self, parsed):
+        """True when a mirror key with the same definition sits within the
+        destroy-matching radius of the pending key (i.e. it moved)."""
+        if parsed is None:
+            return False
+        def_id, approx = parsed
+        px, py, pz = approx
+        radius2 = 3.0 * 3.0
+        for key in self.session.world.keys():
+            if not key.startswith("obj:"):
+                continue
+            other = game_hooks._parse_object_key(key)
+            if other is None or other[0] != def_id:
+                continue
+            x, y, z = other[1]
+            if (x - px) ** 2 + (y - py) ** 2 + (z - pz) ** 2 <= radius2:
+                return True
+        return False
+
+    def _maybe_flush_pending_removals(self):
+        """Destroy deferred removals whose grace window lapsed un-cancelled."""
+        if not self._pending_removals:
+            return
+        now = time.time()
+        for key in list(self._pending_removals):
+            pending = self._pending_removals.get(key)
+            if pending is None or now - pending["since"] < self.object_gone_delay:
+                continue
+            if self._object_reappeared_nearby(pending.get("parsed")):
+                self._pending_removals.pop(key, None)
+                self._log("SYNC", "Object reappeared (move), destroy cancelled: %s" % key)
+                continue
+            self._pending_removals.pop(key, None)
+            self._object_gone_lane(key)
 
     def _maybe_sync_funds(self):
         """Broadcast a changed household balance; apply nothing locally.

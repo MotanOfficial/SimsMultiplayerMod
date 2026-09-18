@@ -56,7 +56,21 @@ class FundsClientTests(unittest.TestCase):
         self.assertEqual(applied, [4250])
         self.assertEqual(client._funds_baseline, 4250)
 
-    def test_object_gone_handler_applies_and_removes_from_mirror(self):
+    def test_funds_sync_echo_of_last_applied_is_ignored(self):
+        client = self._client()
+        applied = []
+
+        def applier(balance):
+            applied.append(balance)
+            return balance
+
+        client.set_funds_applier(applier)
+        client._handle_message(msg.make_funds_sync(4250))
+        client._handle_message(msg.make_funds_sync(4250))  # echo
+        client._handle_message(msg.make_funds_sync(4400))
+        self.assertEqual(applied, [4250, 4400])
+
+    def test_object_gone_handler_removes_mirror_then_defers_destroy(self):
         client = self._client()
         client.session.room_id = "lobby"
         client.session.world.apply_full(
@@ -67,9 +81,46 @@ class FundsClientTests(unittest.TestCase):
         self.assertEqual(client.session.world.count(), 1)
         removed = []
         client.set_object_gone_applier(lambda keys: removed.extend(keys))
+        client.object_gone_delay = 0.0
         client._handle_message(msg.make_object_gone("obj:9@100_200_300"))
-        self.assertEqual(removed, ["obj:9@100_200_300"])
+        self.assertEqual(removed, [], "destroy must be deferred, not immediate")
         self.assertEqual(client.session.world.count(), 0)
+        client._maybe_flush_pending_removals()
+        self.assertEqual(removed, ["obj:9@100_200_300"])
+        self.assertEqual(client._pending_removals, {})
+
+    def test_deferred_destroy_cancelled_when_object_reappears(self):
+        client = self._client()
+        client.session.room_id = "lobby"
+        # The moved object is re-published a grid cell away while the old key
+        # is still buffered; the destroy must be cancelled.
+        client.session.world.apply_full(
+            "lobby",
+            None,
+            [{"key": "obj:9@101_200_300", "owner": 1000, "fields": {"x": 1.01}}],
+        )
+        removed = []
+        client.set_object_gone_applier(lambda keys: removed.extend(keys))
+        client.object_gone_delay = 0.0
+        client._handle_message(msg.make_object_gone("obj:9@100_200_300"))
+        client._maybe_flush_pending_removals()
+        self.assertEqual(removed, [])
+
+    def test_deferred_destroy_survives_unrelated_reappearance(self):
+        client = self._client()
+        client.session.room_id = "lobby"
+        # A *different* definition far away must not cancel the delete.
+        client.session.world.apply_full(
+            "lobby",
+            None,
+            [{"key": "obj:88@900_900_900", "owner": 1000, "fields": {"x": 9.0}}],
+        )
+        removed = []
+        client.set_object_gone_applier(lambda keys: removed.extend(keys))
+        client.object_gone_delay = 0.0
+        client._handle_message(msg.make_object_gone("obj:9@100_200_300"))
+        client._maybe_flush_pending_removals()
+        self.assertEqual(removed, ["obj:9@100_200_300"])
 
     def test_baseline_absorbs_first_sample(self):
         client = self._client()
