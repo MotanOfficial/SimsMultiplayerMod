@@ -91,11 +91,34 @@ class LauncherGuiTests(unittest.TestCase):
         app = self._app()
         app._join_line("[MP][SAVE] SAVE_PUSH slot.save 2/4 (more)")
         self.assertIn("2/4", app.join_status.cget("text"))
+        self.assertEqual(app.join_progress["value"], 50)
         app._join_line("[MP][SAVE] Saved 'slot.save' -> C:\\saves\\slot.save")
         self.assertIn("Saved", app.join_status.cget("text"))
+        self.assertEqual(app.join_progress["value"], 100)
         app._join_line("[MP][ERROR] Save write failed: OSError: disk full")
-        self.assertIn("Save write failed", app.join_status.cget("text"))
+        self.assertIn("Save failed", app.join_status.cget("text"))
+        self.assertIn("disk full", app.join_detail.cget("text"))
         self.assertIn("disk full", app.log_view.get("1.0", "end"))
+
+    def test_join_line_drops_alarm_noise_from_status_card(self):
+        # The launcher client can never arm the game alarm; that ERROR must
+        # stay in the activity log and never overwrite the save-progress card.
+        app = self._app()
+        app._join_line("[MP][SAVE] SAVE_PUSH slot.save 1/4 (more)")
+        phase = app.join_status.cget("text")
+        self.assertIn("1/4", phase)
+        app._join_line("[MP][ERROR] sync alarm unavailable; will retry on next tick/command")
+        self.assertEqual(app.join_status.cget("text"), phase)
+        self.assertIn("sync alarm unavailable", app.log_view.get("1.0", "end"))
+
+    def test_share_line_tracks_chunk_progress(self):
+        app = self._app()
+        app.selected_save = os.path.join("C:\\", "saves", "Slot_00000003.save")
+        app._share_line("[MP][SAVE] SAVE_ACK Slot_00000003.save ok=True reached=1 seq=3/4")
+        self.assertIn("3/4", app.sync_status.cget("text"))
+        self.assertEqual(app.share_progress["value"], 75)
+        app._share_line("[MP][ERROR] sync alarm unavailable; will retry on next tick/command")
+        self.assertIn("3/4", app.sync_status.cget("text"))
 
     def test_selftest_install_lands_full_mod(self):
         # _run_selftest drives the same code path as the "Install mod" button

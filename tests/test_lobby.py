@@ -122,9 +122,17 @@ class PushAndReceiveTests(unittest.TestCase):
         thread.start()
         # let the joiner connect and register before pushing
         time.sleep(1.0)
-        ok, reached = lobby.push_save_file(source, "127.0.0.1", self.server.actual_port)
+        pushed_lines = []
+        ok, reached = lobby.push_save_file(
+            source, "127.0.0.1", self.server.actual_port, on_line=pushed_lines.append
+        )
         self.assertTrue(ok)
         self.assertEqual(reached, 1)
+        # The host-side caller gets the per-chunk ACK stream for a progress bar.
+        self.assertTrue(
+            any("SAVE_ACK" in line and "seq=4/4" in line for line in pushed_lines),
+            "push on_line never surfaced the final-chunk ack: %r" % (pushed_lines,),
+        )
         thread.join(timeout=25.0)
         self.assertFalse(thread.is_alive(), "joiner never completed the multi-chunk save")
         got_slot, path = received["result"]

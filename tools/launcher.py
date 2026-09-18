@@ -30,6 +30,7 @@ import ctypes
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -52,20 +53,22 @@ try:
 except Exception:
     pass
 
-BG = "#131418"
-PANEL = "#1a1d24"
-FIELD = "#21262f"
-BORDER = "#2c313c"
-FG = "#d7dbe2"
-MUTED = "#8b93a1"
-ACCENT = "#5b8cff"
-ACCENT_HOVER = "#729bff"
-GREEN = "#46b880"
-RED = "#e44c4c"
+BG = "#12141a"
+PANEL = "#191c24"
+FIELD = "#20242e"
+BORDER = "#2b303c"
+FG = "#e3e8ef"
+MUTED = "#8f97a5"
+ACCENT = "#4f8cff"
+ACCENT_HOVER = "#6fa3ff"
+GREEN = "#3ecf8e"
+RED = "#ff5f57"
+AMBER = "#ffb454"
 FONT = ("Segoe UI", 9)
 FONT_BOLD = ("Segoe UI", 9, "bold")
-FONT_TITLE = ("Segoe UI", 14, "bold")
-FONT_BIG = ("Segoe UI", 11, "bold")
+FONT_SEMI = ("Segoe UI", 10, "bold")
+FONT_TITLE = ("Segoe UI", 15, "bold")
+FONT_BIG = ("Segoe UI", 12, "bold")
 FONT_MONO = ("Consolas", 9)
 
 RUNTIME_DIR = os.path.join(os.environ.get("TEMP") or os.path.expanduser("~"), "simmp-launcher")
@@ -101,8 +104,8 @@ class LauncherApp(object):
         self.root = root
         root.title("Sims 4 Multiplayer - Lobby")
         root.configure(bg=BG)
-        root.geometry("880x720")
-        root.minsize(760, 600)
+        root.geometry("900x780")
+        root.minsize(780, 640)
 
         os.makedirs(RUNTIME_DIR, exist_ok=True)
         self.settings = _load_settings()
@@ -129,7 +132,7 @@ class LauncherApp(object):
         style = ttk.Style(self.root)
         style.theme_use("clam")
         style.configure("TNotebook", background=BG, borderwidth=0)
-        style.configure("TNotebook.Tab", background=PANEL, foreground=MUTED, padding=(14, 6))
+        style.configure("TNotebook.Tab", background=PANEL, foreground=MUTED, padding=(16, 8), font=FONT_SEMI)
         style.map("TNotebook.Tab", background=[("selected", ACCENT)], foreground=[("selected", "#ffffff")])
         style.configure("TFrame", background=BG)
         style.configure("Panel.TFrame", background=PANEL)
@@ -144,23 +147,45 @@ class LauncherApp(object):
         style.map("TButton", background=[("active", "#232833")])
         style.configure("TEntry", fieldbackground=FIELD, foreground=FG, insertcolor=FG, bordercolor=BORDER)
         style.configure("TCombobox", fieldbackground=FIELD, foreground=FG, background=FIELD, arrowcolor=FG)
-        style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor=FIELD)
+        style.configure(
+            "Horizontal.TProgressbar",
+            troughcolor=FIELD,
+            background=ACCENT,
+            bordercolor=BORDER,
+            lightcolor=ACCENT,
+            darkcolor=ACCENT,
+            thickness=10,
+        )
+        style.configure(
+            "Done.Horizontal.TProgressbar",
+            troughcolor=FIELD,
+            background=GREEN,
+            bordercolor=BORDER,
+            lightcolor=GREEN,
+            darkcolor=GREEN,
+            thickness=10,
+        )
 
     def _build_widgets(self):
         header = tk.Frame(self.root, bg=BG)
-        header.pack(fill="x", padx=16, pady=(12, 4))
-        tk.Label(header, text="Sims 4 Multiplayer", bg=BG, fg=FG, font=FONT_TITLE).pack(side="left")
+        header.pack(fill="x", padx=16, pady=(14, 6))
+        accent = tk.Frame(header, bg=ACCENT, width=4)
+        accent.pack(side="left", fill="y", padx=(0, 12))
+        accent.pack_propagate(False)
+        titles = tk.Frame(header, bg=BG)
+        titles.pack(side="left", fill="y")
+        tk.Label(titles, text="Sims 4 Multiplayer", bg=BG, fg=FG, font=FONT_TITLE).pack(anchor="w")
         tk.Label(
-            header,
+            titles,
             text="LAN co-op lobby - host or join a session",
             bg=BG,
             fg=MUTED,
             font=FONT,
-        ).pack(side="left", padx=(12, 0), pady=(6, 0))
+        ).pack(anchor="w")
 
         self._build_setup_frame()
         self._notebook = ttk.Notebook(self.root)
-        self._notebook.pack(fill="both", expand=True, padx=16)
+        self._notebook.pack(fill="both", expand=True, padx=16, pady=(4, 0))
         self._host_tab()
         self._join_tab()
         self._log_frame()
@@ -200,13 +225,16 @@ class LauncherApp(object):
 
     def _build_setup_frame(self):
         frame = tk.Frame(self.root, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
-        frame.pack(fill="x", padx=16, pady=6)
+        frame.pack(fill="x", padx=16, pady=(6, 6))
         self._setup_frame = frame
-        self._setup_row(frame, "Game files", "game")
-        self._setup_row(frame, "Mods folder", "mods")
-        self._setup_row(frame, "Saves folder", "saves")
+        self._section(frame, "Setup", pady=(10, 6))
+        inner = tk.Frame(frame, bg=PANEL)
+        inner.pack(fill="x", padx=14)
+        self._setup_row(inner, "Game files", "game")
+        self._setup_row(inner, "Mods folder", "mods")
+        self._setup_row(inner, "Saves folder", "saves")
         actions = tk.Frame(frame, bg=PANEL)
-        actions.pack(pady=(2, 4))
+        actions.pack(fill="x", padx=14, pady=(6, 4))
         tk.Button(
             actions,
             text="Install mod",
@@ -254,22 +282,80 @@ class LauncherApp(object):
 
     def _log_frame(self):
         footer = tk.Frame(self.root, bg=BG)
-        footer.pack(fill="both", expand=True, padx=16, pady=(0, 12))
-        tk.Label(footer, text="Activity", bg=BG, fg=MUTED, font=FONT_BOLD).pack(anchor="w")
+        footer.pack(fill="both", expand=True, padx=16, pady=(8, 12))
+        header = tk.Frame(footer, bg=BG)
+        header.pack(fill="x")
+        tk.Label(header, text="ACTIVITY", bg=BG, fg=MUTED, font=FONT_SEMI).pack(side="left")
+        tk.Button(
+            header, text="Clear", command=self._clear_log, bg=BG, fg=ACCENT, relief="flat",
+            activebackground=BG, activeforeground=ACCENT_HOVER, cursor="hand2", font=FONT_BOLD,
+        ).pack(side="right")
         self.log_view = tk.Text(
             footer,
-            bg=FIELD,
+            bg="#0f1116",
             fg=FG,
             insertbackground=FG,
             relief="flat",
             font=FONT_MONO,
-            height=9,
+            height=8,
             state="disabled",
             borderwidth=1,
             highlightbackground=BORDER,
             highlightcolor=BORDER,
+            padx=8,
+            pady=6,
         )
         self.log_view.pack(fill="both", expand=True, pady=(4, 0))
+
+    def _clear_log(self):
+        self.log_view.config(state="normal")
+        self.log_view.delete("1.0", "end")
+        self.log_view.config(state="disabled")
+
+    def _section(self, parent, text, pady=(12, 4)):
+        row = tk.Frame(parent, bg=PANEL)
+        row.pack(fill="x", padx=14, pady=pady)
+        tk.Label(row, text=text.upper(), bg=PANEL, fg=MUTED, font=FONT_SEMI).pack(side="left")
+        tk.Frame(row, bg=BORDER, height=1).pack(side="left", fill="x", expand=True, padx=(8, 0), pady=(6, 0))
+
+    def _progress_row(self, parent, bg=FIELD):
+        row = tk.Frame(parent, bg=bg)
+        bar = ttk.Progressbar(row, style="Horizontal.TProgressbar", mode="determinate", maximum=100)
+        pct = tk.Label(row, text="", bg=bg, fg=MUTED, font=FONT_MONO, width=5, anchor="e")
+        bar.pack(side="left", fill="x", expand=True)
+        pct.pack(side="left", padx=(8, 0))
+        return row, bar, pct
+
+    def _status_card(self, parent):
+        """A phase card: colored strip + phase line + detail + progress bar."""
+        outer = tk.Frame(parent, bg=PANEL)
+        outer.pack(fill="x", padx=14, pady=(6, 6))
+        strip = tk.Frame(outer, bg=MUTED, width=4)
+        strip.pack(side="left", fill="y")
+        inner = tk.Frame(outer, bg=FIELD, highlightbackground=BORDER, highlightthickness=1)
+        inner.pack(side="left", fill="x", expand=True)
+        phase = tk.Label(inner, text="", bg=FIELD, fg=FG, font=FONT_SEMI, anchor="w", justify="left")
+        phase.pack(fill="x", padx=12, pady=(9, 0))
+        detail = tk.Label(inner, text="", bg=FIELD, fg=MUTED, anchor="w", justify="left", wraplength=680, font=FONT)
+        detail.pack(fill="x", padx=12)
+        row, bar, pct = self._progress_row(inner, FIELD)
+        row.pack(fill="x", padx=12, pady=(8, 10))
+        return {"strip": strip, "inner": inner, "phase": phase, "detail": detail,
+                "row": row, "bar": bar, "pct": pct}
+
+    def _set_status(self, card, phase, detail=None, color=MUTED, progress=None, done=False):
+        card["strip"].configure(bg=color)
+        card["phase"].configure(text=phase, fg=FG if color == MUTED else color)
+        if detail is not None:
+            card["detail"].configure(text=detail)
+        if progress is None:
+            card["row"].pack_forget()
+            return
+        card["row"].pack(fill="x", padx=12, pady=(8, 10))
+        value = max(0, min(100, int(progress)))
+        card["bar"].configure(style="Done.Horizontal.TProgressbar" if done else "Horizontal.TProgressbar")
+        card["bar"]["value"] = value
+        card["pct"].configure(text=("%d%%" % value) if not done else "100%", fg=GREEN if done else MUTED)
 
     def _host_tab(self):
         tab = tk.Frame(self._notebook, bg=BG)
@@ -277,71 +363,76 @@ class LauncherApp(object):
         panel = tk.Frame(tab, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
         panel.pack(fill="both", expand=True, padx=12, pady=12)
 
-        tk.Label(panel, text="Lobby", bg=PANEL, fg=FG, font=FONT_BIG).pack(anchor="w", padx=12, pady=(10, 4))
+        self._section(panel, "Lobby", pady=(12, 4))
         row = tk.Frame(panel, bg=PANEL)
-        row.pack(fill="x", padx=12)
-        tk.Label(row, text="Port", bg=PANEL, fg=MUTED, width=12, anchor="w").pack(side="left")
+        row.pack(fill="x", padx=14)
+        tk.Label(row, text="Port", bg=PANEL, fg=MUTED, width=11, anchor="w").pack(side="left")
         self.var_host_port = tk.StringVar(value=str(self.settings.get("host_port", DEFAULT_PORT)))
         tk.Spinbox(row, from_=1024, to=65535, textvariable=self.var_host_port, bg=FIELD, fg=FG,
                    insertbackground=FG, relief="flat", width=8, buttonbackground=PANEL).pack(side="left")
-        tk.Label(row, text="Your LAN IP", bg=PANEL, fg=MUTED, width=12, anchor="w").pack(side="left", padx=(14, 0))
+        tk.Label(row, text="Your LAN IP", bg=PANEL, fg=MUTED, width=12, anchor="w").pack(side="left", padx=(16, 0))
         self.var_lan_ip = tk.StringVar(value=lobby.find_lan_ip() or "?")
         self.lan_ip_combo = ttk.Combobox(row, textvariable=self.var_lan_ip, font=FONT_MONO, width=18)
         self.lan_ip_combo.pack(side="left")
         self.lan_ip_combo["values"] = lobby.all_lan_ips() or ["?"]
         tk.Button(row, text="Copy", command=self._copy_ip, bg=PANEL, fg=ACCENT, relief="flat",
-                  activebackground=PANEL, activeforeground=ACCENT_HOVER).pack(side="left", padx=(4, 0))
+                  activebackground=PANEL, activeforeground=ACCENT_HOVER, cursor="hand2").pack(side="left", padx=(6, 0))
 
         row = tk.Frame(panel, bg=PANEL)
-        row.pack(fill="x", padx=12, pady=(6, 0))
-        tk.Label(row, text="Your name", bg=PANEL, fg=MUTED, width=12, anchor="w").pack(side="left")
+        row.pack(fill="x", padx=14, pady=(6, 0))
+        tk.Label(row, text="Your name", bg=PANEL, fg=MUTED, width=11, anchor="w").pack(side="left")
         self.var_host_name = tk.StringVar(value=self.settings.get("host_name", "Host"))
         ttk.Entry(row, textvariable=self.var_host_name).pack(side="left", fill="x", expand=True, ipady=3)
 
-        self.lobby_status = tk.Label(
-            panel, text="Lobby not running", bg=PANEL, fg=MUTED, font=FONT_BOLD, anchor="w"
-        )
-        self.lobby_status.pack(fill="x", padx=12, pady=(10, 2))
+        self.lobby_card = self._status_card(panel)
+        # Legacy attribute kept as the phase line of the status card.
+        self.lobby_status = self.lobby_card["phase"]
+        self._set_status(self.lobby_card, "Lobby not running", "Start the lobby, then pick a save to share.")
+
         self.host_btns = tk.Frame(panel, bg=PANEL)
-        self.host_btns.pack(fill="x", padx=12)
+        self.host_btns.pack(fill="x", padx=14)
         self.btn_start_lobby = tk.Button(
             self.host_btns, text="Start lobby", command=self._start_lobby,
-            bg=ACCENT, fg="#ffffff", relief="flat", font=FONT_BOLD, padx=14, pady=6,
+            bg=ACCENT, fg="#ffffff", relief="flat", font=FONT_BOLD, padx=16, pady=6, cursor="hand2",
         )
         self.btn_start_lobby.pack(side="left")
         self.btn_stop_lobby = tk.Button(
             self.host_btns, text="Stop lobby", command=self._stop_lobby,
-            bg=PANEL, fg=RED, relief="flat", font=FONT_BOLD, padx=14, pady=6,
+            bg=PANEL, fg=RED, relief="flat", font=FONT_BOLD, padx=16, pady=6, cursor="hand2",
         )
         self.btn_stop_lobby.pack(side="left", padx=(8, 0))
         self.btn_stop_lobby.config(state="disabled")
 
-        tk.Label(panel, text="Save to share", bg=PANEL, fg=FG, font=FONT_BIG).pack(anchor="w", padx=12, pady=(14, 4))
+        self._section(panel, "Save to share", pady=(16, 4))
         row = tk.Frame(panel, bg=PANEL)
-        row.pack(fill="x", padx=12)
+        row.pack(fill="x", padx=14)
         self.var_save = tk.StringVar()
         self.save_combo = ttk.Combobox(row, textvariable=self.var_save, state="readonly", font=FONT)
         self.save_combo.pack(side="left", fill="x", expand=True, ipady=2)
         self.btn_refresh_saves = tk.Button(
             row, text="Refresh", command=self._refresh_saves, bg=PANEL, fg=ACCENT, relief="flat",
-            activebackground=PANEL, activeforeground=ACCENT_HOVER,
-        ).pack(side="left")
+            activebackground=PANEL, activeforeground=ACCENT_HOVER, cursor="hand2",
+        ).pack(side="left", padx=(6, 0))
         self.save_combo.bind("<<ComboboxSelected>>", self._on_save_picked)
 
-        self.sync_status = tk.Label(panel, text="No save shared yet", bg=PANEL, fg=MUTED, anchor="w")
-        self.sync_status.pack(fill="x", padx=12, pady=(8, 2))
+        self.share_card = self._status_card(panel)
+        self.sync_status = self.share_card["phase"]
+        self.share_progress = self.share_card["bar"]
+        self._set_status(self.share_card, "No save shared yet",
+                         "Choose a save, then share it once a player has joined.")
+
         row = tk.Frame(panel, bg=PANEL)
-        row.pack(fill="x", padx=12, pady=(0, 10))
+        row.pack(fill="x", padx=14, pady=(0, 12))
         self.btn_share = tk.Button(
             row, text="Share save with players", command=self._share_save,
-            bg=PANEL, fg=ACCENT, relief="flat", font=FONT_BOLD, padx=14, pady=6,
-            state="disabled",
+            bg=PANEL, fg=ACCENT, relief="flat", font=FONT_BOLD, padx=16, pady=7,
+            state="disabled", cursor="hand2",
         )
         self.btn_share.pack(side="left", padx=(0, 8))
         self.btn_host_start = tk.Button(
             row, text="Start game", command=self._start_game_host,
-            bg=GREEN, fg="#ffffff", relief="flat", font=FONT_BOLD, padx=18, pady=6,
-            state="disabled",
+            bg=GREEN, fg="#0d1f17", relief="flat", font=FONT_BOLD, padx=20, pady=7,
+            state="disabled", cursor="hand2",
         )
         self.btn_host_start.pack(side="left")
 
@@ -351,36 +442,40 @@ class LauncherApp(object):
         panel = tk.Frame(tab, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
         panel.pack(fill="both", expand=True, padx=12, pady=12)
 
-        tk.Label(panel, text="Join a lobby", bg=PANEL, fg=FG, font=FONT_BIG).pack(anchor="w", padx=12, pady=(10, 4))
+        self._section(panel, "Lobby address", pady=(12, 4))
         row = tk.Frame(panel, bg=PANEL)
-        row.pack(fill="x", padx=12)
-        tk.Label(row, text="Host IP", bg=PANEL, fg=MUTED, width=12, anchor="w").pack(side="left")
+        row.pack(fill="x", padx=14)
+        tk.Label(row, text="Host IP", bg=PANEL, fg=MUTED, width=11, anchor="w").pack(side="left")
         self.var_join_ip = tk.StringVar(value=self.settings.get("join_ip", ""))
         ttk.Entry(row, textvariable=self.var_join_ip).pack(side="left", fill="x", expand=True, ipady=3)
 
         row = tk.Frame(panel, bg=PANEL)
-        row.pack(fill="x", padx=12, pady=(6, 0))
-        tk.Label(row, text="Port", bg=PANEL, fg=MUTED, width=12, anchor="w").pack(side="left")
+        row.pack(fill="x", padx=14, pady=(6, 0))
+        tk.Label(row, text="Port", bg=PANEL, fg=MUTED, width=11, anchor="w").pack(side="left")
         self.var_join_port = tk.StringVar(value=str(self.settings.get("join_port", DEFAULT_PORT)))
         port_entry = ttk.Entry(row, textvariable=self.var_join_port, width=16)
         port_entry.pack(side="left", ipady=3)
-        tk.Label(row, text="Your name", bg=PANEL, fg=MUTED, width=10, anchor="w").pack(side="left", padx=(14, 0))
+        tk.Label(row, text="Your name", bg=PANEL, fg=MUTED, width=10, anchor="w").pack(side="left", padx=(16, 0))
         self.var_join_name = tk.StringVar(value=self.settings.get("join_name", "Player"))
         ttk.Entry(row, textvariable=self.var_join_name).pack(side="left", fill="x", expand=True, ipady=3)
 
-        self.join_status = tk.Label(panel, text="Not joined", bg=PANEL, fg=MUTED, font=FONT_BOLD, anchor="w")
-        self.join_status.pack(fill="x", padx=12, pady=(10, 2))
+        self.join_card = self._status_card(panel)
+        self.join_status = self.join_card["phase"]
+        self.join_detail = self.join_card["detail"]
+        self.join_progress = self.join_card["bar"]
+        self._set_status(self.join_card, "Not joined", "Enter the host's IP and press Join lobby.")
+
         row = tk.Frame(panel, bg=PANEL)
-        row.pack(fill="x", padx=12, pady=(0, 12))
+        row.pack(fill="x", padx=14, pady=(0, 12))
         self.btn_join = tk.Button(
             row, text="Join lobby", command=self._join_lobby,
-            bg=ACCENT, fg="#ffffff", relief="flat", font=FONT_BOLD, padx=14, pady=6,
+            bg=ACCENT, fg="#ffffff", relief="flat", font=FONT_BOLD, padx=16, pady=7, cursor="hand2",
         )
         self.btn_join.pack(side="left")
         self.btn_join_start = tk.Button(
             row, text="Start game", command=self._start_game_join,
-            bg=GREEN, fg="#ffffff", relief="flat", font=FONT_BOLD, padx=18, pady=6,
-            state="disabled",
+            bg=GREEN, fg="#0d1f17", relief="flat", font=FONT_BOLD, padx=20, pady=7,
+            state="disabled", cursor="hand2",
         )
         self.btn_join_start.pack(side="left", padx=(8, 0))
         self._refresh_saves()
@@ -598,8 +693,12 @@ class LauncherApp(object):
         self.var_host_port.set(str(self.server.actual_port))
         self.btn_start_lobby.config(state="disabled")
         self.btn_stop_lobby.config(state="normal")
-        self.lobby_status.config(text="Lobby open at %s:%s - tell the other PC to join" % (
-            self.var_lan_ip.get(), self.server.actual_port), fg=GREEN)
+        self._set_status(
+            self.lobby_card,
+            "Lobby open at %s:%s" % (self.var_lan_ip.get(), self.server.actual_port),
+            "Tell the other PC to join - waiting for players.",
+            color=GREEN,
+        )
         self._note("Windows firewall may ask for permission - allow it so friends can join.")
 
     def _stop_lobby(self):
@@ -610,7 +709,7 @@ class LauncherApp(object):
         self._connected_players = 0
         self.btn_start_lobby.config(state="normal")
         self.btn_stop_lobby.config(state="disabled")
-        self.lobby_status.config(text="Lobby stopped", fg=MUTED)
+        self._set_status(self.lobby_card, "Lobby stopped", "Start the lobby, then pick a save to share.")
         self.btn_share.config(state="disabled")
         self._update_host_start_button()
 
@@ -622,14 +721,13 @@ class LauncherApp(object):
         connected = [p for p in players if p.get("connected")]
         self._connected_players = len(connected)
         if self.server is not None and self.server.thread_alive():
-            self.lobby_status.config(
-                text="Lobby open at %s:%s - %d player(s) connected%s" % (
-                    self.var_lan_ip.get(),
-                    self.server.actual_port,
-                    len(connected),
-                    "  (%s)" % ", ".join(p.get("name", "?") for p in connected) if connected else "",
-                ),
-                fg=GREEN,
+            names = ", ".join(p.get("name", "?") for p in connected)
+            self._set_status(
+                self.lobby_card,
+                "Lobby open at %s:%s" % (self.var_lan_ip.get(), self.server.actual_port),
+                ("%d player(s) connected: %s" % (len(connected), names)) if connected
+                else "Waiting for players to join...",
+                color=GREEN if connected else MUTED,
             )
             if connected and self.server and self.server.thread_alive():
                 if self.selected_save and not self.synced:
@@ -654,22 +752,49 @@ class LauncherApp(object):
             self._note("Start the lobby first.", kind="error")
             return
         self.btn_share.config(state="disabled")
-        self.sync_status.config(text="Sharing save...", fg=MUTED)
+        self._set_status(self.share_card, "Sharing save...", os.path.basename(self.selected_save),
+                         color=AMBER, progress=0)
         host = "127.0.0.1"
         port = self.server.actual_port
         path = self.selected_save
         name = self.var_host_name.get().strip() or "Host"
         def work():
             try:
-                ok, reached = lobby.push_save_file(path, host, port, name=name, timeout=60.0)
+                ok, reached = lobby.push_save_file(
+                    path, host, port, name=name, timeout=60.0,
+                    on_line=lambda line: self._post(lambda l=line: self._share_line(l)),
+                )
                 self._post(lambda: self._on_share_done(ok, reached))
             except Exception as exc:  # noqa: BLE001
                 self._post(lambda e=exc: self._on_share_done(False, 0, e))
         threading.Thread(target=work, daemon=True).start()
 
+    def _share_line(self, line):
+        """Surface host-side push progress in the share card, not as red noise."""
+        stripped = line.strip()
+        if "sync alarm unavailable" in line:
+            self._note(stripped)
+            return
+        match = re.search(r"SAVE_ACK .*?seq=(\d+)/(\d+)", line)
+        if match:
+            seq, total = int(match.group(1)), int(match.group(2))
+            pct = (seq * 100 // total) if total else 100
+            self._set_status(
+                self.share_card,
+                "Sharing save... %d/%d chunks" % (seq, total),
+                os.path.basename(self.selected_save or ""),
+                color=AMBER, progress=pct,
+            )
+            self._note(stripped)
+            return
+        if "[MP][ERROR]" in line:
+            self._note(stripped, kind="error")
+            return
+        self._note(stripped)
+
     def _on_share_done(self, ok, reached, exc=None):
         if exc is not None:
-            self.sync_status.config(text="Share failed: %s" % exc, fg=RED)
+            self._set_status(self.share_card, "Share failed", str(exc), color=RED)
             return
         if ok:
             # The server caches the save, so a player who joins after this
@@ -677,14 +802,17 @@ class LauncherApp(object):
             self.synced = True
             self.btn_share.config(state="normal")
             if reached >= 1:
-                self.sync_status.config(
-                    text="Save synced to %d player(s). They can press Start game now." % reached, fg=GREEN)
+                self._set_status(
+                    self.share_card, "Save synced to %d player(s)" % reached,
+                    "They can press Start game now.", color=GREEN, progress=100, done=True)
             else:
-                self.sync_status.config(
-                    text="Save staged - players who join or reconnect will receive it automatically.",
-                    fg=GREEN)
+                self._set_status(
+                    self.share_card, "Save staged",
+                    "Players who join or reconnect will receive it automatically.",
+                    color=GREEN, progress=100, done=True)
         else:
-            self.sync_status.config(text="Share failed.", fg=RED)
+            self._set_status(self.share_card, "Share failed",
+                             "The lobby server did not accept the save.", color=RED)
             self.btn_share.config(state="normal")
         self._update_host_start_button()
 
@@ -710,8 +838,15 @@ class LauncherApp(object):
             os.environ["SIM4_MP_SAVE_ROOT"] = ts4_user
         name = self.var_join_name.get().strip() or "Player"
         self.btn_join.config(state="disabled", text="Joining...")
-        self.join_status.config(text="Connecting to %s:%s..." % (host, port), fg=MUTED)
+        self._set_status(self.join_card, "Connecting to %s:%s..." % (host, port),
+                         "Waiting for the host to share the save...", color=AMBER, progress=0)
         self._note("Joining %s:%s - waiting for the host to share the save..." % (host, port))
+
+        def _connected():
+            self._note("Connected as %s - save request sent to the host's lobby." % name)
+            self._set_status(self.join_card, "Connected - waiting for the save",
+                             "The host has been asked to share their save.", color=AMBER)
+
         def work():
             try:
                 slot, path = lobby.receive_save_file(
@@ -719,9 +854,7 @@ class LauncherApp(object):
                     port,
                     name=name,
                     timeout=120.0,
-                    on_connected=lambda: self._post(lambda: self._note(
-                        "Connected as %s - save request sent to the host's lobby."
-                        % name)),
+                    on_connected=lambda: self._post(_connected),
                     on_line=lambda line: self._post(lambda l=line: self._join_line(l)),
                 )
                 self._post(lambda: self._on_join_done(slot, path))
@@ -731,28 +864,43 @@ class LauncherApp(object):
         self.join_thread.start()
 
     def _join_line(self, line):
-        """Surface one joiner-side client log line (save progress/errors)."""
+        """Surface joiner-side client lines as live save progress, not red noise."""
         stripped = line.strip()
-        if "[MP][SAVE]" in line or "[MP][ERROR]" in line:
-            if "Saved" in line:
-                self.join_status.config(text=stripped, fg=GREEN)
-            elif "reached=" in line or "SAVE_PUSH" in line:
-                self.join_status.config(text=stripped, fg=GREEN)
-            elif "[MP][ERROR]" in line:
-                self.join_status.config(text=stripped, fg=RED)
-                self._note(stripped, kind="error")
-            else:
-                self._note(stripped)
-        else:
+        if "sync alarm unavailable" in line:
+            # Expected outside the game (launcher context); keep it in the
+            # activity log but never let it mask the save-transfer progress.
             self._note(stripped)
+            return
+        if "[MP][SAVE]" in line:
+            match = re.search(r"SAVE_PUSH (\S+) (\d+)/(\d+)", line)
+            if match:
+                slot, seq, total = match.group(1), int(match.group(2)), int(match.group(3))
+                pct = (seq * 100 // total) if total else 100
+                self._set_status(self.join_card, "Receiving save... %d/%d chunks" % (seq, total),
+                                 slot, color=ACCENT, progress=pct)
+                self._note(stripped)
+                return
+            if "Saved" in line:
+                self._set_status(self.join_card, "Saved - ready to start", stripped,
+                                 color=GREEN, progress=100, done=True)
+                self._note(stripped)
+                return
+            self._note(stripped)
+            return
+        if "[MP][ERROR]" in line:
+            self._set_status(self.join_card, "Save failed", stripped, color=RED)
+            self._note(stripped, kind="error")
+            return
+        self._note(stripped)
 
     def _on_join_done(self, slot, path, exc=None):
         self.btn_join.config(state="normal", text="Join lobby")
         if exc is not None:
-            self.join_status.config(text="Join failed: %s" % exc, fg=RED)
+            self._set_status(self.join_card, "Join failed", str(exc), color=RED)
             self._note("Could not receive the save: %s" % exc, kind="error")
             return
-        self.join_status.config(text="Joined. Save '%s' received -> %s" % (slot, path), fg=GREEN)
+        self._set_status(self.join_card, "Save received - ready to start",
+                         "Saved '%s' -> %s" % (slot, path), color=GREEN, progress=100, done=True)
         self._note("Save 'slot_%s' received and saved to %s" % (slot.replace(".save", ""), path))
         self.btn_join_start.config(state="normal")
 

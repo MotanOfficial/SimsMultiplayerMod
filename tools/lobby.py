@@ -265,11 +265,14 @@ class ServerHandle:
         return self.thread is not None and self.thread.is_alive()
 
 
-def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost"):
+def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost", on_line=None):
     """Upload ``path`` to the server; return the ack ``(ok, reached)``.
 
     Raises on connect/upload failure; returns ``(False, reached)`` when the
     server acked locally only (no other player was connected).
+    ``on_line(line)``, if given, receives every client ``[MP][...]`` log line
+    as it happens (SAVE_ACK progress/errors) so the caller can surface a live
+    progress bar in its own UI.
     """
     with open(path, "rb") as handle:
         payload = handle.read()
@@ -277,7 +280,16 @@ def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost"):
     chunk_size = 512 * 1024
     total = (len(payload) + chunk_size - 1) // chunk_size if payload else 1
     log = []
-    client = MultiplayerClient(client_name=name, notify=log.append)
+
+    def _notify(line):
+        log.append(line)
+        if on_line is not None:
+            try:
+                on_line(line)
+            except Exception:
+                pass
+
+    client = MultiplayerClient(client_name=name, notify=_notify)
     if not client.connect(host, port):
         client.disconnect()
         raise RuntimeError("connect() returned False; is the lobby running?")
