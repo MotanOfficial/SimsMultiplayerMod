@@ -23,6 +23,7 @@ DEFAULT_CONFIG = {
     "port": 8765,
     "name": "Sims4Player",
     "auto_connect": False,
+    "min_players": 1,
     "presence_interval": 5.0,
     "presence_ttl": 30.0,
     "auto_accept_travel": True,
@@ -70,6 +71,11 @@ def _coerce_and_validate(values):
 
     if "auto_connect" in values and not isinstance(values["auto_connect"], bool):
         raise ConfigError("auto_connect must be true or false")
+
+    if "min_players" in values:
+        count = values["min_players"]
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ConfigError("min_players must be an integer >= 1")
 
     if "presence_interval" in values:
         interval = values["presence_interval"]

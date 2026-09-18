@@ -182,7 +182,7 @@ OPTIONAL_PAYLOAD_FIELDS = {
     OBJECT_CLAIM: ("zone_id",),
     OBJECT_RELEASE: ("zone_id",),
     OBJECT_GONE: ("player_id", "zone_id"),
-    WORLD_STATE: ("zone_id",),
+    WORLD_STATE: ("zone_id", "part", "total"),
     WORLD_DELTA: ("player_id", "zone_id"),
     OBJECT_OWNERSHIP: ("player_id", "zone_id"),
     INTERACTION_REQUEST: ("args", "affordance_id", "affordance", "target", "zone_id"),

@@ -78,7 +78,13 @@ class LocalSession:
         self.interactions.apply_free(payload["room_id"], payload.get("zone_id"), payload["object_key"], payload["cooldown_until"])
 
     def apply_world_state(self, payload):
-        self.world.apply_full(payload["room_id"], payload.get("zone_id"), payload["objects"])
+        self.world.apply_state_part(
+            payload["room_id"],
+            payload.get("zone_id"),
+            payload["objects"],
+            payload.get("part", 0),
+            payload.get("total", 1),
+        )
 
     def apply_world_delta(self, payload):
         self.world.apply_delta(payload["room_id"], payload.get("zone_id"), payload["seq"], payload["updates"])

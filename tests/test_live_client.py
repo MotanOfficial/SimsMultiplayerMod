@@ -229,6 +229,52 @@ class ObjectGoneClientTests(unittest.TestCase):
         self.assertEqual(client._world_tracked_zone, 101)
 
 
+class WorldUpdateChunkingTests(unittest.TestCase):
+    """A real lot owns more objects than one OBJECT_UPDATE may carry.
+
+    Regression: an oversize batch was rejected as MALFORMED, which aborted
+    the whole sync tick (`sync tick failed`). Updates must be chunked to the
+    protocol limit instead.
+    """
+
+    def _client(self):
+        client = MultiplayerClient(client_name="Alice")
+        client.engine = FakeEngine()
+        client.world_sync = True
+        client.world_interval = 0.0
+        client._last_world_sent = 0.0
+        client.session.player_id = 1000
+        client.session.room_id = "lobby"
+        return client
+
+    def test_many_owned_objects_split_into_valid_chunks(self):
+        from simmp.constants import MAX_OBJECT_UPDATE_OBJECTS
+
+        client = self._client()
+        total = MAX_OBJECT_UPDATE_OBJECTS * 2 + 3
+        objects = [
+            {"key": "obj:%d@%d_0_0" % (i, i), "fields": {"x": float(i)}}
+            for i in range(total)
+        ]
+        client.session.world.apply_full(
+            "lobby", None,
+            [{"key": o["key"], "owner": 1000, "fields": {}} for o in objects],
+        )
+        client.set_world_sampler(lambda: list(objects))
+        with _zone_state(True, 42):
+            client._maybe_send_world_update()
+
+        self.assertEqual(len(client.engine.update_calls), 3)
+        sent = 0
+        for chunk, _zone in client.engine.update_calls:
+            self.assertLessEqual(len(chunk), MAX_OBJECT_UPDATE_OBJECTS)
+            sent += len(chunk)
+            # The real builder validates; this would raise ProtocolError if
+            # the chunk exceeded the limit.
+            msg.make_object_update(chunk)
+        self.assertEqual(sent, total)
+
+
 class TimeUnreadyClientTests(unittest.TestCase):
     class FakeEngine(object):
         def __init__(self):

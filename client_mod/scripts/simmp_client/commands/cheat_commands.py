@@ -36,6 +36,7 @@ from simmp.constants import CLOCK_SPEED_NORMAL, CLOCK_SPEED_PAUSED, MAX_CLOCK_SP
 from simmp_client import ui as mp_ui
 from simmp_client.connectivity import MultiplayerClient
 from simmp_client.hooks import game_hooks
+from simmp_client.logfile import FileLog
 from simmp_client.notifications import ToastFilter
 
 
@@ -52,9 +53,21 @@ _ui = mp_ui.GameUI(enabled=True, console=_console_output)
 
 _toast_filter = ToastFilter()
 
+_client_log = FileLog()
+
+
+def _console_line(line):
+    """Echo a mod log line to the cheat console (works without a connection)."""
+    try:
+        sims4.commands.output(line)
+    except Exception:
+        pass
+
 
 def _notify(line):
     _console_output(line)
+    _console_line(line)
+    _client_log.write(line)
     toast = _toast_filter.pick(
         line,
         self_player_id=_client.session.player_id if _client.session else None,
@@ -203,6 +216,7 @@ def _mp_autoconnect(path="", _connection=None):
         return
     _client.client_name = config["name"]
     _console_output("[MP][NET] config loaded from %s" % cfg_path, _connection)
+    _client.min_players = config["min_players"]
     _client.presence_ttl = config["presence_ttl"]
     _client.auto_accept_travel = config["auto_accept_travel"]
     _client.world_sync = config["world_sync"]

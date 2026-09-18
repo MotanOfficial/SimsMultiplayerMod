@@ -15,6 +15,7 @@ def _apply_config(config):
 
     client = cheat_commands.get_client()
     client.client_name = config["name"]
+    client.min_players = config["min_players"]
     client.presence_interval = config["presence_interval"]
     client.presence_ttl = config["presence_ttl"]
     client.auto_accept_travel = config["auto_accept_travel"]
@@ -41,22 +42,31 @@ def _safe_connect(client, host, port):
 
 
 def schedule_auto_connect():
+    """Apply the stored config and arm the one-shot connect alarm.
+
+    Returns True when the alarm was actually scheduled. The alarm service may
+    not be ready during mod import, so the config is only consumed on success;
+    a later `mp.*` command retries via `cheat_commands._maybe_init()`.
+    """
     global _auto_connect_config
     if _auto_connect_config is None:
-        return
+        return False
     from simmp_client.commands import cheat_commands
     from simmp_client.hooks import game_hooks
 
     config = _auto_connect_config
-    _auto_connect_config = None
     client = _apply_config(config)
     host = config["host"]
     port = config["port"]
-    game_hooks.add_one_off_real_time_alarm(
+    handle = game_hooks.add_one_off_real_time_alarm(
         client,
         2.0,
         lambda *args: _safe_connect(client, host, port),
     )
+    if handle is None:
+        return False
+    _auto_connect_config = None
+    return True
 
 
 def install():
@@ -79,7 +89,16 @@ def install():
         return True
 
     _auto_connect_config = config
+    # Try to arm the connect alarm right away so the player never has to type
+    # a command. If the alarm service is not up yet at import time this is a
+    # no-op and the first mp.* command retries through _maybe_init().
+    try:
+        schedule_auto_connect()
+    except Exception:
+        pass
     return True
 
 
-_installed = install()
+from simmp_client import SIM4_AVAILABLE
+
+_installed = install() if SIM4_AVAILABLE else None

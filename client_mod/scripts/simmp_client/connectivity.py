@@ -12,6 +12,7 @@ from simmp.constants import (
     CLOCK_SPEED_NORMAL,
     CLOCK_SPEED_PAUSED,
     MAX_CLOCK_SPEED,
+    MAX_OBJECT_UPDATE_OBJECTS,
     MIN_CLOCK_SPEED,
 )
 from simmp_client import version
@@ -57,6 +58,10 @@ class MultiplayerClient:
         self.auto_reconnect = True
         self.reconnect_backoff_min = 2.0
         self.reconnect_backoff_max = 30.0
+        # Co-op start gate: hold the game paused until this many players are
+        # present, so whoever loads in first cannot play ahead of the others.
+        self.min_players = 1
+        self._players_wait_logged = False
         self._reconnect_attempt = 0
         self._next_reconnect_at = 0.0
         self._alarm_started_at = 0.0
@@ -410,6 +415,23 @@ class MultiplayerClient:
             self._log("TIME", "Apply room speed %s FAILED: %r" % (speed, exc))
             return False
 
+    def _connected_player_count(self):
+        count = 0
+        for player in self.session.room_players.values():
+            if player.get("connected", True):
+                count += 1
+        return count
+
+    def _players_short(self):
+        """True while fewer than `min_players` players have joined the room.
+
+        Independent of the server gate: it keeps the first player to load into
+        a co-op session paused until the others connect, so nobody plays ahead.
+        """
+        if self.min_players <= 1:
+            return False
+        return self._connected_player_count() < self.min_players
+
     def _maybe_sync_clock(self):
         """Reconcile the game clock with the room's authoritative state.
 
@@ -461,14 +483,23 @@ class MultiplayerClient:
         local = game_hooks.get_clock_speed()
         if local is None:
             return
-        if self.time_gate:
-            # Gated: someone is still joining/loading. The room must stay
-            # paused. Do this eagerly even inside an echo window - the echo
-            # exists only to suppress the server bouncing our own OPEN-gate
-            # speed change back at us, never a PAUSE.
+        if self.time_gate or self._players_short():
+            # Gated: someone is still joining/loading (or the co-op session is
+            # waiting for peers to connect). The room must stay paused. Do this
+            # eagerly even inside an echo window - the echo exists only to
+            # suppress the server bouncing our own OPEN-gate speed change back
+            # at us, never a PAUSE.
             if local != CLOCK_SPEED_PAUSED:
                 game_hooks.set_clock_speed(CLOCK_SPEED_PAUSED)
+            if self._players_short() and not self._players_wait_logged:
+                self._players_wait_logged = True
+                self._log(
+                    "TIME",
+                    "Holding paused until %d players present (%d connected)"
+                    % (self.min_players, self._connected_player_count()),
+                )
             return
+        self._players_wait_logged = False
         if now - self._gate_open_since < self._clock_echo_window:
             if local != self.time_speed:
                 self._apply_room_speed(self.time_speed)
@@ -1216,8 +1247,17 @@ class MultiplayerClient:
                     self.claim_object(key)
                 continue
             updates.append({"key": key, "fields": entry.get("fields", {}), "rev": 0})
-        if updates and self.engine.send_object_update(updates):
-            self._last_world_sent = now
+        if updates:
+            # A real lot owns far more objects than a single OBJECT_UPDATE may
+            # carry, and the protocol rejects oversize batches as MALFORMED
+            # (which used to abort the whole sync tick). Send bounded chunks.
+            sent_all = True
+            for start in range(0, len(updates), MAX_OBJECT_UPDATE_OBJECTS):
+                chunk = updates[start:start + MAX_OBJECT_UPDATE_OBJECTS]
+                if not self.engine.send_object_update(chunk):
+                    sent_all = False
+            if sent_all:
+                self._last_world_sent = now
 
     def _send_object_gone(self, key):
         if self.engine is None or not self.engine.connected:

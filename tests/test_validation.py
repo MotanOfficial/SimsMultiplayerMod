@@ -42,6 +42,20 @@ class ValidationTests(unittest.TestCase):
             result = validate_message(message)
             self.assertIs(result, message)
 
+    def test_world_state_chunk_fields_validated(self):
+        validate_message(msg.make_world_state("lobby", [], part=0, total=2))
+        incomplete = msg.make_world_state("lobby", [])
+        incomplete["payload"]["part"] = 0
+        self.assert_protocol_error(incomplete, "MALFORMED")
+        bad_part = msg.make_world_state("lobby", [])
+        bad_part["payload"]["part"] = 2
+        bad_part["payload"]["total"] = 2
+        self.assert_protocol_error(bad_part, "MALFORMED")
+        bad_total = msg.make_world_state("lobby", [])
+        bad_total["payload"]["part"] = 0
+        bad_total["payload"]["total"] = 0
+        self.assert_protocol_error(bad_total, "MALFORMED")
+
     def test_missing_version(self):
         self.assert_protocol_error({"type": "HELLO", "request_id": "r", "payload": {}}, "MALFORMED")
 
@@ -172,3 +186,40 @@ class ValidationTests(unittest.TestCase):
             "payload": {"reason": "x" * 600},
         }
         self.assert_protocol_error(message, "MALFORMED")
+
+
+class WorldStateChunkTests(unittest.TestCase):
+    """A full snapshot larger than one frame must be split into valid parts."""
+
+    def test_small_snapshot_is_single_unchunked_frame(self):
+        from server.protocol.handlers import world_state_frames
+
+        objects = [{"key": "k%d" % i, "owner": 1, "fields": {}} for i in range(5)]
+        frames = world_state_frames("lobby", objects, zone_id=7)
+        self.assertEqual(len(frames), 1)
+        self.assertNotIn("part", frames[0]["payload"])
+        self.assertEqual(len(frames[0]["payload"]["objects"]), 5)
+
+    def test_large_snapshot_splits_into_valid_numbered_parts(self):
+        from simmp.constants import MAX_OBJECT_UPDATE_OBJECTS
+        from server.protocol.handlers import world_state_frames
+
+        total_objects = MAX_OBJECT_UPDATE_OBJECTS * 2 + 3
+        objects = [{"key": "k%d" % i, "owner": 1, "fields": {}} for i in range(total_objects)]
+        frames = world_state_frames("lobby", objects, zone_id=7)
+        self.assertEqual(len(frames), 3)
+        seen = 0
+        for index, frame in enumerate(frames):
+            validate_message(frame)
+            self.assertEqual(frame["payload"]["part"], index)
+            self.assertEqual(frame["payload"]["total"], 3)
+            self.assertLessEqual(len(frame["payload"]["objects"]), MAX_OBJECT_UPDATE_OBJECTS)
+            seen += len(frame["payload"]["objects"])
+        self.assertEqual(seen, total_objects)
+
+    def test_empty_snapshot_is_one_empty_frame(self):
+        from server.protocol.handlers import world_state_frames
+
+        frames = world_state_frames("lobby", [], zone_id=7)
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(frames[0]["payload"]["objects"], [])

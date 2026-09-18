@@ -351,6 +351,44 @@ class TimeClientTickTests(unittest.TestCase):
             client._maybe_sync_clock()
         setter.assert_called_once_with(0)
 
+    def test_players_short_true_until_min_players_connected(self):
+        client = MultiplayerClient(client_name="Alice")
+        client.min_players = 2
+        client.session.room_players = {1: {"connected": True}}
+        self.assertTrue(client._players_short())
+        client.session.room_players = {1: {"connected": True}, 2: {"connected": True}}
+        self.assertFalse(client._players_short())
+        client.session.room_players = {1: {"connected": True}, 2: {"connected": False}}
+        self.assertTrue(client._players_short())
+        client.min_players = 1
+        self.assertFalse(client._players_short())
+
+    def test_alone_holds_paused_until_peer_connects(self):
+        # Regression: the first player to load into a co-op session must not
+        # start playing while the server gate is open but no peer has joined.
+        client = self._client()
+        client.min_players = 2
+        client.session.room_players = {1000: {"connected": True}}
+        with self._zone_state(100), mock.patch(
+            "simmp_client.connectivity.game_hooks.get_clock_speed", return_value=1
+        ), mock.patch(
+            "simmp_client.connectivity.game_hooks.set_clock_speed", return_value=0
+        ) as setter:
+            client._maybe_sync_clock()
+        setter.assert_called_once_with(0)
+
+    def test_peer_present_releases_the_hold(self):
+        client = self._client()
+        client.min_players = 2
+        client.session.room_players = {1000: {"connected": True}, 1001: {"connected": True}}
+        with self._zone_state(100), mock.patch(
+            "simmp_client.connectivity.game_hooks.get_clock_speed", return_value=1
+        ), mock.patch(
+            "simmp_client.connectivity.game_hooks.set_clock_speed", return_value=1
+        ) as setter:
+            client._maybe_sync_clock()
+        setter.assert_not_called()
+
     def test_welcome_resets_zone_ready_id(self):
         client = MultiplayerClient(client_name="Alice")
         client.time_ready_sent = True

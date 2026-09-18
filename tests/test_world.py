@@ -41,6 +41,20 @@ class WorldMirrorTests(unittest.TestCase):
         self.assertIn("stove", mirror.objects)
         self.assertNotIn("sofa", mirror.objects)
 
+    def test_apply_state_part_reconstructs_chunked_snapshot(self):
+        mirror = self._mirror(100)
+        mirror.apply_state_part("lobby", 100, [{"key": "a", "owner": 1, "fields": {"x": 1.0}}], part=0, total=3)
+        mirror.apply_state_part("lobby", 100, [{"key": "b", "owner": 2, "fields": {}}], part=1, total=3)
+        mirror.apply_state_part("lobby", 100, [{"key": "c", "owner": None, "fields": {}}], part=2, total=3)
+        self.assertEqual(sorted(mirror.objects), ["a", "b", "c"])
+        self.assertEqual(mirror.get("b").owner, 2)
+
+    def test_apply_state_part_ignores_late_part_for_other_zone(self):
+        mirror = self._mirror(100)
+        mirror.apply_state_part("lobby", 100, [{"key": "a", "owner": 1, "fields": {}}], part=0, total=2)
+        mirror.apply_state_part("lobby", 200, [{"key": "b", "owner": 1, "fields": {}}], part=1, total=2)
+        self.assertEqual(sorted(mirror.objects), ["a"])
+
     def test_apply_delta_merges_fields(self):
         mirror = self._mirror(100)
         mirror.apply_full("lobby", 100, [{"key": "sofa", "owner": 1000, "fields": {"x": 1.0}}])

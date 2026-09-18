@@ -42,6 +42,15 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(loaded["auto_reconnect"], True)
         self.assertEqual(loaded["reconnect_backoff_min"], 2.0)
         self.assertEqual(loaded["reconnect_backoff_max"], 30.0)
+        self.assertEqual(loaded["min_players"], 1)
+
+    def test_min_players_roundtrip_and_validation(self):
+        self._write({"min_players": 2})
+        self.assertEqual(cfg.load_config(self._path)["min_players"], 2)
+        for bad in (0, -1, True, "2", 1.5):
+            self._write({"min_players": bad})
+            with self.assertRaises(cfg.ConfigError):
+                cfg.load_config(self._path)
 
     def test_ui_dialogs_roundtrip_and_validation(self):
         self._write({"ui_dialogs": False})

@@ -80,6 +80,20 @@ class WorldMirror:
             mirror = ObjectMirror(entry["key"], entry.get("owner"), entry.get("fields"))
             self.objects[mirror.key] = mirror
 
+    def apply_state_part(self, room_id, zone_id, objects, part=0, total=1):
+        """Apply one part of a (possibly chunked) full snapshot.
+
+        Part 0 clears the mirror first; later parts merge, so a snapshot split
+        across several frames reconstructs exactly like `apply_full`.
+        """
+        if part == 0:
+            self.reset(room_id, zone_id)
+        elif room_id != self.room_id or zone_id != self.zone_id:
+            return
+        for entry in objects:
+            mirror = ObjectMirror(entry["key"], entry.get("owner"), entry.get("fields"))
+            self.objects[mirror.key] = mirror
+
     def apply_delta(self, room_id, zone_id, seq, updates):
         if room_id != self.room_id or zone_id != self.zone_id:
             return

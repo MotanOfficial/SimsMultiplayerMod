@@ -917,6 +917,7 @@ class LauncherApp(object):
             "port": int(port),
             "name": name,
             "auto_connect": True,
+            "min_players": 2,
         }
         targets = [
             os.path.join(mods, "Sims4Multiplayer.json"),

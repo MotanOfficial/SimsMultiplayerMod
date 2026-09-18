@@ -1,7 +1,10 @@
+import sys
+import types
 import unittest
 from unittest import mock
 
 from simmp_client import presence
+from simmp_client import sims4_plugin
 from simmp_client.connectivity import MultiplayerClient
 from simmp_client.hooks import game_hooks
 from simmp_client.state.session import LocalSession
@@ -92,6 +95,49 @@ class LocalSessionPresenceTtlTests(unittest.TestCase):
         session.apply_player_left({"player_id": 1000, "room_id": "lobby", "reason": "disconnected"})
         self.assertNotIn(1000, session._presence_seen)
         self.assertNotIn(1000, session.presence)
+
+
+class AutoConnectScheduleTests(unittest.TestCase):
+    """The stored auto-connect config must survive a failed schedule so the
+    first mp.* command can retry instead of silently never connecting."""
+
+    def setUp(self):
+        fake = types.ModuleType("simmp_client.commands.cheat_commands")
+        package = types.ModuleType("simmp_client.commands")
+        package.cheat_commands = fake
+        self._saved = {
+            "simmp_client.commands": sys.modules.get("simmp_client.commands"),
+            "simmp_client.commands.cheat_commands": sys.modules.get(
+                "simmp_client.commands.cheat_commands"
+            ),
+        }
+        sys.modules["simmp_client.commands"] = package
+        sys.modules["simmp_client.commands.cheat_commands"] = fake
+        sims4_plugin._auto_connect_config = {"host": "h", "port": 1}
+
+    def tearDown(self):
+        for name, module in self._saved.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+        sims4_plugin._auto_connect_config = None
+
+    def test_successful_schedule_consumes_config(self):
+        with mock.patch.object(sims4_plugin, "_apply_config", return_value=object()), \
+                mock.patch.object(
+                    game_hooks, "add_one_off_real_time_alarm", return_value="handle"
+                ):
+            self.assertTrue(sims4_plugin.schedule_auto_connect())
+        self.assertIsNone(sims4_plugin._auto_connect_config)
+
+    def test_failed_schedule_keeps_config_for_retry(self):
+        with mock.patch.object(sims4_plugin, "_apply_config", return_value=object()), \
+                mock.patch.object(
+                    game_hooks, "add_one_off_real_time_alarm", return_value=None
+                ):
+            self.assertFalse(sims4_plugin.schedule_auto_connect())
+        self.assertIsNotNone(sims4_plugin._auto_connect_config)
 
 
 if __name__ == "__main__":

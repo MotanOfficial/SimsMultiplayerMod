@@ -175,10 +175,19 @@ def make_object_release(key, zone_id=None):
     return build_message("OBJECT_RELEASE", payload)
 
 
-def make_world_state(room_id, objects, zone_id=None):
+def make_world_state(room_id, objects, zone_id=None, part=None, total=None):
+    """A full world snapshot, optionally one part of a chunked snapshot.
+
+    A real lot owns more objects than one frame may carry, so a large snapshot
+    is sent as `total` numbered parts (0-based `part`); the client clears its
+    mirror on part 0 and merges the rest. Small snapshots omit both fields.
+    """
     payload = {"room_id": room_id, "objects": objects}
     if zone_id is not None:
         payload["zone_id"] = zone_id
+    if part is not None and total is not None:
+        payload["part"] = part
+        payload["total"] = total
     return build_message("WORLD_STATE", payload)
 
 

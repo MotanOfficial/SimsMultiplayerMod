@@ -9,9 +9,33 @@ from simmp import messages as msg
 from simmp.constants import (
     CLOCK_SPEED_PAUSED,
     DEFAULT_ROOM_ID,
+    MAX_OBJECT_UPDATE_OBJECTS,
     MAX_SAVE_CHUNK_BYTES,
     PROTOCOL_VERSION,
 )
+
+
+def world_state_frames(room_id, objects, zone_id=None):
+    """Build the WORLD_STATE frame(s) for a full snapshot.
+
+    A lot can hold far more objects than one frame allows, so the snapshot is
+    split into numbered parts of at most `MAX_OBJECT_UPDATE_OBJECTS`; a small
+    snapshot stays a single frame with no part fields.
+    """
+    objects = list(objects or [])
+    total = max(1, (len(objects) + MAX_OBJECT_UPDATE_OBJECTS - 1) // MAX_OBJECT_UPDATE_OBJECTS)
+    if total == 1:
+        return [msg.make_world_state(room_id, objects, zone_id=zone_id)]
+    return [
+        msg.make_world_state(
+            room_id,
+            objects[start:start + MAX_OBJECT_UPDATE_OBJECTS],
+            zone_id=zone_id,
+            part=start // MAX_OBJECT_UPDATE_OBJECTS,
+            total=total,
+        )
+        for start in range(0, len(objects), MAX_OBJECT_UPDATE_OBJECTS)
+    ]
 
 ERR_ALREADY_REGISTERED = "ALREADY_REGISTERED"
 ERR_NOT_REGISTERED = "NOT_REGISTERED"
@@ -135,13 +159,12 @@ class Handlers:
         zone_id = session.player_zone(player)
         if zone_id is None:
             zone_id = session.dominant_room_zone(room_id)
-        await conn.send(
-            msg.make_world_state(
-                room_id,
-                server.session.get_world_objects(room_id, zone_id),
-                zone_id=zone_id,
-            )
-        )
+        for frame in world_state_frames(
+            room_id,
+            server.session.get_world_objects(room_id, zone_id),
+            zone_id=zone_id,
+        ):
+            await conn.send(frame)
         await conn.send(
             msg.make_interaction_state(
                 room_id,
@@ -177,7 +200,10 @@ class Handlers:
         )
 
         await conn.send(msg.make_room_state(new_room_id, new_room.as_dict()["players"]))
-        await conn.send(msg.make_world_state(new_room_id, server.session.get_world_objects(new_room_id)))
+        for frame in world_state_frames(
+            new_room_id, server.session.get_world_objects(new_room_id)
+        ):
+            await conn.send(frame)
         await conn.send(msg.make_interaction_state(new_room_id, server.session.get_room_interactions(new_room_id)))
         await server.broadcast_room(
             new_room_id,
@@ -696,13 +722,12 @@ class Handlers:
             zone_id,
         )
         # Flip the traveling client's mirror to the new zone's world.
-        await conn.send(
-            msg.make_world_state(
-                conn.room_id,
-                server.session.get_world_objects(conn.room_id, zone_id),
-                zone_id=zone_id,
-            )
-        )
+        for frame in world_state_frames(
+            conn.room_id,
+            server.session.get_world_objects(conn.room_id, zone_id),
+            zone_id=zone_id,
+        ):
+            await conn.send(frame)
         await conn.send(
             msg.make_interaction_state(
                 conn.room_id,

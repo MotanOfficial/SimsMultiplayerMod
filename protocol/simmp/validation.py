@@ -216,6 +216,25 @@ def _validate_field_types(msg_type, payload):
 
     if msg_type == "WORLD_STATE":
         _validate_object_entries(payload["objects"], require_rev=False, require_owner=True)
+        if "part" in payload or "total" in payload:
+            require(
+                "part" in payload and "total" in payload,
+                "MALFORMED",
+                "chunked WORLD_STATE needs both 'part' and 'total'",
+            )
+            part = payload["part"]
+            total = payload["total"]
+            require(
+                isinstance(part, int) and not isinstance(part, bool) and part >= 0,
+                "MALFORMED",
+                "'part' must be a non-negative int",
+            )
+            require(
+                isinstance(total, int) and not isinstance(total, bool) and total >= 1,
+                "MALFORMED",
+                "'total' must be a positive int",
+            )
+            require(part < total, "MALFORMED", "'part' must be less than 'total'")
 
     if msg_type == "WORLD_DELTA":
         require(payload["seq"] >= 1, "MALFORMED", "'seq' must be >= 1")
