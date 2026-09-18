@@ -770,6 +770,57 @@ client code (no in-game hook work needed) are closed.
   reappearance; destroy kept for an unrelated far-away definition. Full
   suite: `python tests/run_tests.py` -> **301 tests OK**.
 
+## M18 - Incremental GitHub updates (DONE)
+
+M15's 13.1 MB one-file .exe only changes when the bootstrap itself changes.
+Everything else the app and mod run is now synced incrementally from the
+public GitHub repo, so an update ships as a handful of small files - no
+re-transferring the .exe, and the `Run Launcher.bat` is gone (double-click
+the exe).
+
+- [x] **`tools/updater.py`** (stdlib only): fetches the committed
+  `runtime_manifest.json` from `raw.githubusercontent.com/MotanOfficial/
+  SimsMultiplayerMod/main`, diffs per-file sha256 against the last-applied
+  local manifest (`version.json`), downloads only changed/new files
+  (sha-verified, one retry, atomic `os.replace`), and stores the applied
+  manifest. Offline/moved-repo -> the local runtime is left untouched.
+  `changed_mod_files()` flags any `client_mod/` change so the launcher can
+  re-install the mod automatically. All network calls go through a pluggable
+  `fetcher` for offline unit tests.
+- [x] **`tools/make_manifest.py`**: author-side generator - walks the same
+  `MOUNT_ROOTS` as the updater, emits `runtime_manifest.json` (version
+  defaults to `DATE-git-short-sha`), and lists what changed since the repo
+  HEAD-ish marker.
+- [x] **Runtime mounting**: a `_RuntimeFinder` meta-path hook is inserted
+  ahead of PyInstaller's `FrozenImporter` so every synced module name
+  imports from `%LOCALAPPDATA%\Sims4Multiplayer\runtime` (top-level and
+  nested, packages and namespace packages, mirroring `protocol/` ->
+  `simmp`, `server/` -> `server.*`, `tools/*.py` -> `tools.*` plus the
+  top-level `save_metadata` alias). Non-runtime names (stdlib, tkinter, the
+  launcher) still resolve from the bundle. Cached bundle copies of routed
+  names are evicted from `sys.modules` first. Verified end-to-end with the
+  real .exe: the mod install copied the *runtime* `build_script_mod.py`, not
+  the bundle copy.
+- [x] **Launcher** (`tools/launcher.py`): startup order is now
+  `mount_runtime(CODE_ROOT)` -> `_load_app_modules()` (runtime modules
+  imported once, not at module top-level) -> GUI/selftest. Auto-update on
+  start (default on, settings key `auto_update`), a "Check updates"
+  button, and a status line reporting the local/remote version; after an
+  update the mod is re-installed into the configured Mods folder when any
+  `client_mod/` file changed. First run has no runtime: the check downloads
+  the whole runtime (~335 KiB), the user restarts the launcher, and the
+  next start runs it.
+- [x] **`tools/build_app.py`**: no longer emits `Run Launcher.bat`
+  (double-click the exe; the `dist/` .bat is deleted), and the frozen
+  bootstrap always bundles `tools.updater` so the running exe never depends
+  on a synced updater.
+- [x] Tests (+17): manifest validation, plan/apply, full sync round-trips
+  (first run, no-op, single-file change, offline, corrupt-file rollback),
+  mod-change detection, and runtime mounting over a fake synced tree
+  (modules resolve from the runtime dir, not the working copy). Full suite:
+  `python tests/run_tests.py` -> **318 tests OK**, plus a frozen-bundle
+  selftest (`SIM4_MP_SELFTEST=<dir>`) and a public-repo check.
+
 ## Out of scope until explicit decision
 
 - Full DNA/lot/room package sharing (needs a large asset protocol and

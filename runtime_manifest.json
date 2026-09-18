@@ -1,0 +1,177 @@
+{
+ "version": "2026-09-18-c9c1b84",
+ "files": [
+  {
+   "path": "client_mod/build_script_mod.py",
+   "sha256": "c16421f25f27d7aa80ba15a771e945eb730b194134fbb4512e3a4e98811e2d71"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/__init__.py",
+   "sha256": "d5284173f416cd8f24c98b179bd5c0d5b9ddb0979fd36af04c9fd42702af5b3a"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/commands/__init__.py",
+   "sha256": "e06bcf92e76c3155ec8f8fdcaad95dabd7c75663150e67a66bacef909845d2a6"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/commands/cheat_commands.py",
+   "sha256": "db8997c43e6396b8654db32973aefd026c5216ec51fd06acd9a1b6bc8d690cd9"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/config.py",
+   "sha256": "a6dfc278d064511213e9a0f173c2d7cf8162076b14f2e4b8096af3e6155272ba"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/connectivity.py",
+   "sha256": "e0c73176681fd178d396b8ed93a597cf600f809cad47e04527c091078317e011"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/hooks/__init__.py",
+   "sha256": "a808fdd194483a7b29052c618d9374f0a7665aeb247110e3b61252761b352148"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/hooks/game_hooks.py",
+   "sha256": "34005f345835efd759294404a1876816603994774f86a6765843022d6d9e5364"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/networking/__init__.py",
+   "sha256": "57eeef094d5e1cd9b60182f0243d300ca5f6e5db983c177b1686dcfa04caddca"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/networking/engine.py",
+   "sha256": "e50142febd1af7b8926ef58f724f85b3880efec1e252d296c42f640fdeb494b8"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/notifications.py",
+   "sha256": "453b2541d16bd1f1e82a46c6d966b4f985d31ee69739603585222aab37338a17"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/presence.py",
+   "sha256": "45a121a41fa11c045944294a8abe85e73c35ecfbfe01d5a05e0bf2f877a00c03"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/sims4_plugin.py",
+   "sha256": "6657ce6c7f60b51b3190c86c7e5d06f6a77a4ddc829e82351c1fe81371c728c5"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/state/__init__.py",
+   "sha256": "b409a6b80b789e2fb7833353653cc72e315a406a311d4f72b90333badeba63e4"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/state/interactions.py",
+   "sha256": "1da8a62094cd9e5fd5215c72258b7128ee46a4ce3c4da26630bc92a200226a6d"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/state/save_transfer.py",
+   "sha256": "072630a84345f95035de7559bb49a0d940dacf73e4ee9d5d952484dffaa801b1"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/state/session.py",
+   "sha256": "77ca7323f9bfda1c4c5ba85e696948e653f8df334bdef1fdfcf816eee1ed3baa"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/state/world.py",
+   "sha256": "194b8a34230071ee2a1148306d1a1c1a1a774642788255d454ffe528b75c4fc6"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/ui.py",
+   "sha256": "7fa4d600240f920b9141257daf17c27aaf896df4f0d0d94cbf446dd930d382a8"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/version.py",
+   "sha256": "48e43b98c3c56b4a18fdd3d26935c75d05e78fddb2d25f66662963907db27f89"
+  },
+  {
+   "path": "protocol/simmp/__init__.py",
+   "sha256": "32a3750be6aeaa56a02f920059ab30a3904cc71ead84e31f0110fe970638c7af"
+  },
+  {
+   "path": "protocol/simmp/constants.py",
+   "sha256": "d6baf370811ba2bc229f89241fa69829dafb4d8a0835e1c1f4329e5c319d0abf"
+  },
+  {
+   "path": "protocol/simmp/framing.py",
+   "sha256": "e1034722cd3126a7310d3277883aba37ff36a68ee3d568c8d52a50586053fbd1"
+  },
+  {
+   "path": "protocol/simmp/messages.py",
+   "sha256": "5f3ee493cca25d5ca079cff1ddde98882d2bc6764e88389313fd97a6cd872b4b"
+  },
+  {
+   "path": "protocol/simmp/validation.py",
+   "sha256": "d3c2aee61a2481a59c4316968dfe316be1e2df8f93de8eb3141af44b4df1193f"
+  },
+  {
+   "path": "server/__init__.py",
+   "sha256": "e9864c3e1254c48d71b6882b1a6a81dde908eb3b2a73efd3ad7b0287de239658"
+  },
+  {
+   "path": "server/config.py",
+   "sha256": "7fbb074f813d9bbae48d049c1d33e92cdb215aceeb05ec34d23e5b4a7ec01434"
+  },
+  {
+   "path": "server/main.py",
+   "sha256": "dc210c26df9914156a0d745d00ba8512be5b4a1338764938d29cda6513743d23"
+  },
+  {
+   "path": "server/networking/__init__.py",
+   "sha256": "a866da41ac01b93c725f78f3dfc98bb594c6329e9a42e291f119e0413cc5c5d8"
+  },
+  {
+   "path": "server/networking/connection.py",
+   "sha256": "0a1ad01ed0427c3b1d4d622be623835a67089b418a249efe8c286ea9db433e18"
+  },
+  {
+   "path": "server/networking/server.py",
+   "sha256": "6302919c82eb09078249bd00498735fb1ad32317cf594a14cba15e89c5340daa"
+  },
+  {
+   "path": "server/protocol/__init__.py",
+   "sha256": "385aec1312a10fdadcdeada5bebd532e80e787752bba6b03868fd36cfccb28d3"
+  },
+  {
+   "path": "server/protocol/handlers.py",
+   "sha256": "364079134487df2db7b1d4a8fae6801680f0b5cc6969dca4f5c3bf1bcffbccaa"
+  },
+  {
+   "path": "server/rooms/__init__.py",
+   "sha256": "9441aa7be4a81bda91784454587962e24041e12d14d9784f2003ef7b847e3b3f"
+  },
+  {
+   "path": "server/rooms/room.py",
+   "sha256": "d9fce9791353155a6d50c1bc9ed1abac315ae3bc95431a1840cb71160bb9461e"
+  },
+  {
+   "path": "server/state/__init__.py",
+   "sha256": "1061f4c678a871579de3a552c9f009e454c228859b27531cd267e0726ee2c838"
+  },
+  {
+   "path": "server/state/session.py",
+   "sha256": "86e63b19c918b22cf534ec2f25d34852ce1b5c1d1b7ca8b5668db321f5585597"
+  },
+  {
+   "path": "server/travel/__init__.py",
+   "sha256": "842294c97be7b00f04b769fa0cb24bf6bc84633ad138d927433683404eabec24"
+  },
+  {
+   "path": "server/travel/coordinator.py",
+   "sha256": "b417ce0360393d444549235244d27bb38374a9cbdb1988d2dd9f30b111306489"
+  },
+  {
+   "path": "tools/game_paths.py",
+   "sha256": "11de265db830c48fd7477b07307d45d653cfc3710bab9ab3f92968e16c05c0b0"
+  },
+  {
+   "path": "tools/lobby.py",
+   "sha256": "98bfe504514aa760f102e2420fdc66d6b27569bd30261097fde16e29c1f9a982"
+  },
+  {
+   "path": "tools/save_metadata.py",
+   "sha256": "230a3ad0582f265053acf908bd2b62ce85e7c9979942c889b03146e60e35ef54"
+  },
+  {
+   "path": "tools/save_sync.py",
+   "sha256": "ee03d2ca778401f9999968a8f7b0355924ae1e8f9a2341f89b15bfa6cdeae1c7"
+  }
+ ]
+}

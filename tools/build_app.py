@@ -7,7 +7,10 @@ Usage::
 Outputs ``dist/Sims4MultiplayerLauncher.exe`` (windowed, one-file). No
 third-party dependencies are required on the target machine — everything
 (lobby server, save sync, tkinter UI, GDI+ thumbnail extraction) ships
-inside the .exe.
+inside the .exe. The .exe is the stable bootstrap: actual runtime code is
+synced incrementally from GitHub by ``tools/updater.py`` into the user's
+runtime folder, so updates never mean re-transferring this .exe. Just
+double-click the .exe to start it (no launcher .bat is written or needed).
 
 Development note: without the flag ``--onedir``, PyInstaller compresses the
 entire tree into one archive that is extracted to a temp folder at launch.
@@ -46,13 +49,13 @@ HIDDEN_IMPORTS = [
     "simmp",
     "simmp.constants",
     "simmp.framing",
-    "simmp.message",
+    "simmp.messages",
     "simmp.validation",
-    "tools",
+"tools",
     "tools.game_paths",
     "tools.lobby",
     "tools.save_metadata",
-    "build_script_mod",
+    "tools.updater",
 ]
 
 SEARCH_PATHS = [
@@ -98,13 +101,8 @@ def build():
         return False
     exe = DIST_DIR / ("%s.exe" % APP_NAME)
     if exe.exists():
-        bat = DIST_DIR / "Run Launcher.bat"
-        bat.write_text(
-            '@echo off\nstart "" "%%~dp0%s.exe"\n' % APP_NAME,
-            encoding="utf-8",
-        )
         print("[BUILD] Success: %s" % exe)
-        print("[BUILD] Run Launcher.bat written to %s" % bat)
+        print("[BUILD] Double-click the .exe to run it (no launcher .bat needed).")
     else:
         print("[BUILD] Expected .exe not found at %s" % exe)
     return True

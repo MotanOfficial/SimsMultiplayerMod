@@ -66,6 +66,18 @@ SimSync, or any non-stdlib Python package.
 > that launches the game already configured to auto-connect). `tools/build_app.py`
 > packages it into a single windowed .exe with PyInstaller. See
 > `docs/milestones.md`.
+> M16 = save sharing + joining gate + live money/build: one-click host-side
+> save push that lands in every joiner's saves folder, a lobby join gate
+> (joiners pause until everyone's there and no game is running), and live
+> funds + build-mode sync in-game.
+> M17 = live-world hardening: deferred object destroy, a funds echo guard,
+> and runtime cheat toggles (`mp.build_sync`, `mp.funds_sync`,
+> `mp.funds_interval`).
+> M18 = incremental GitHub updates: the .exe is a thin bootstrap; the server,
+> protocol, tools and mod source are synced incrementally from the public
+> repo into `%LOCALAPPDATA%\Sims4Multiplayer\runtime` and mounted over the
+> frozen copies. Updates ship as a few small files (no re-transferring the
+> .exe, no `.bat`). See `tools/updater.py`, `tools/make_manifest.py`.
 
 ## Layout
 
@@ -191,11 +203,33 @@ the game was restarted after installing the mod.
 ## Tests
 
 ```bash
-python tests/run_tests.py      # 298 tests, stdlib only
+python tests/run_tests.py      # 318 tests, stdlib only
 python -m pytest -q            # optional
 ```
 
 See `docs/m1-testing.md` for the full matrix and live smoke steps.
+
+## Updating (author flow)
+
+The .exe never carries the app logic - it boots a synced runtime folder.
+To ship an update:
+
+1. Edit the server/protocol/tools/mod code as usual, verify
+   `python tests/run_tests.py`.
+2. Regenerate the manifest so the launcher knows what changed:
+   `python tools/make_manifest.py` (writes `runtime_manifest.json`).
+3. Commit and push **both** the code and `runtime_manifest.json`. The repo
+   must stay public - the launcher fetches raw files from
+   `raw.githubusercontent.com/MotanOfficial/SimsMultiplayerMod/main`.
+4. The launcher on each PC auto-checks on start ("Check updates" to force),
+   downloads only files whose sha256 changed (~335 KiB for the whole
+   runtime, individual files for updates), reinstalls the mod into the Mods
+   folder if any `client_mod/` file changed, and asks for one restart to
+   mount the new runtime.
+
+Only rebuild the .exe when `tools/launcher.py`, `tools/updater.py`,
+`tools/build_app.py` or `tools/dev_console.py` change - that is the one
+artifact the other PC still transfers once.
 
 ## Launcher (give it to another PC)
 
@@ -215,7 +249,7 @@ picks its VPN IP and the joiner enters that address.
 
 - `docs/architecture.md` - layering, threading model, message flow
 - `docs/protocol.md` - wire format (v4), message catalogue, reliability
-- `docs/milestones.md` - roadmap (M1-M15 done)
+- `docs/milestones.md` - roadmap (M1-M18 done)
 - `docs/sims4-research.md` - confirmed public modding facts (packaging, alarms, commands, UI)
 - `docs/m1-testing.md` - unit + live verification
 

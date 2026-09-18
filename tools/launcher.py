@@ -1,9 +1,15 @@
 """Sims 4 Multiplayer launcher - host/join lobby with auto-setup (stdlib only).
 
-Runs completely offline: game-path detection, mod auto-install, an embedded
-lobby server, one-click save sharing, and game launch. Designed to be bundled
-into a single .exe via ``tools/build_app.py`` (PyInstaller); no third-party
-runtime dependencies.
+Runs completely offline-safe: game-path detection, mod auto-install, an
+embedded lobby server, one-click save sharing, and game launch. Designed to
+be bundled into a single .exe via ``tools/build_app.py`` (PyInstaller); no
+third-party runtime dependencies.
+
+The .exe is a thin bootstrap. The actual runtime code (server, protocol,
+mod source, tools) is synced incrementally from the public GitHub repo into
+``%LOCALAPPDATA%\\Sims4Multiplayer\\runtime`` by ``tools/updater.py`` and is
+mounted over the frozen copies at startup, so an update to the app + mod is
+a handful of small downloaded files - never a fresh .exe.
 
 Flow:
    Host:   Start lobby -> friends join via the shown LAN IP -> pick a save ->
@@ -14,6 +20,10 @@ Flow:
 After either side presses "Start Game" a ``Sims4Multiplayer.json`` is written
 into the Mods folder so the game auto-connects on boot, and the game exe (or
 the Steam fallback) is launched.
+
+Updates: with ``auto_update`` on (default), the launcher checks the GitHub
+manifest on every start, pulls only changed runtime files, and reinstalls the
+mod into the configured Mods folder. "Check updates" forces a check.
 """
 
 import ctypes
@@ -33,15 +43,9 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
-from save_metadata import SlotMeta, human_size, human_time  # noqa: E402
-from tools.game_paths import (  # noqa: E402
-    ts4_user_folder,
-    mods_folder,
-    saves_folder,
-    game_executable,
-    steam_game_id,
-)
-from tools import lobby  # noqa: E402
+from tools import updater  # noqa: E402
+
+CODE_ROOT = updater.runtime_data_root()
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
@@ -111,11 +115,13 @@ class LauncherApp(object):
         self.log_queue = queue.Queue()
         self._pending_state = {}
 
+        _load_app_modules()
         self._build_widgets()
         self._apply_style()
         self._auto_detect()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.after(150, self._poll_queue)
+        self.root.after(400, self._maybe_check_updates)
 
     # ------------------------------------------------------------------ UI
     def _apply_style(self):
@@ -199,7 +205,7 @@ class LauncherApp(object):
         self._setup_row(frame, "Mods folder", "mods")
         self._setup_row(frame, "Saves folder", "saves")
         actions = tk.Frame(frame, bg=PANEL)
-        actions.pack(pady=(2, 8))
+        actions.pack(pady=(2, 4))
         tk.Button(
             actions,
             text="Install mod",
@@ -213,8 +219,37 @@ class LauncherApp(object):
             padx=18,
             pady=5,
         ).pack(side="left", padx=(0, 8))
+        tk.Button(
+            actions,
+            text="Check updates",
+            command=self._manual_check_updates,
+            bg=PANEL,
+            fg=ACCENT,
+            activebackground=PANEL,
+            activeforeground=ACCENT_HOVER,
+            relief="flat",
+            font=FONT_BOLD,
+            padx=14,
+            pady=5,
+        ).pack(side="left", padx=(0, 14))
+        self._auto_update_var = tk.BooleanVar(value=bool(self.settings.get("auto_update", True)))
+        tk.Checkbutton(
+            actions,
+            text="Auto-update",
+            variable=self._auto_update_var,
+            command=self._save_auto_update_setting,
+            bg=PANEL,
+            fg=FG,
+            selectcolor=FIELD,
+            activebackground=PANEL,
+            activeforeground=FG,
+        ).pack(side="left", padx=(0, 14))
         self.setup_status = tk.Label(actions, text="", bg=PANEL, fg=MUTED, font=FONT)
         self.setup_status.pack(side="left")
+        row2 = tk.Frame(frame, bg=PANEL)
+        row2.pack(fill="x", padx=12, pady=(0, 4))
+        self.update_status = tk.Label(row2, text="", bg=PANEL, fg=MUTED, font=FONT)
+        self.update_status.pack(anchor="w")
 
     def _log_frame(self):
         footer = tk.Frame(self.root, bg=BG)
@@ -413,6 +448,74 @@ class LauncherApp(object):
                 self._post(lambda e=exc: self.setup_status.config(text="Install failed: %s" % e, fg=RED))
         threading.Thread(target=work, daemon=True).start()
         self.setup_status.config(text="Installing...", fg=MUTED)
+
+    # ----------------------------------------------------------------- updates
+    def _save_auto_update_setting(self):
+        self.settings["auto_update"] = bool(self._auto_update_var.get())
+        _save_settings(self.settings)
+
+    def _maybe_check_updates(self):
+        if not bool(self.settings.get("auto_update", True)):
+            self.update_status.config(
+                text="Auto-update off - local runtime %s" % (updater.installed_version(CODE_ROOT) or "(none)"),
+                fg=MUTED,
+            )
+            return
+        self._check_updates(manual=False)
+
+    def _manual_check_updates(self):
+        self._check_updates(manual=True)
+
+    def _check_updates(self, manual=False):
+        if getattr(self, "_update_busy", False):
+            self._note("Update check already running.")
+            return
+        self._update_busy = True
+        self.update_status.config(text="Checking for updates...", fg=MUTED)
+        before = updater.installed_version(CODE_ROOT) or "(none)"
+
+        def work():
+            summary = updater.sync(
+                updater.base_url(),
+                CODE_ROOT,
+                log=lambda line: self._post(lambda: self._note("[UP] %s" % line)),
+            )
+            mods = self.var_mods.get().strip()
+            reinstalled = False
+            if summary.get("ok") and summary.get("changed") and mods:
+                if updater.changed_mod_files(summary["changed"]):
+                    try:
+                        build_script_mod.cmd_dev(mods)
+                        reinstalled = True
+                    except Exception as exc:  # noqa: BLE001
+                        self._post(lambda e=exc: self._note(
+                            "Update downloaded, but mod reinstall into %s failed: %s" % (mods, e),
+                            kind="error",
+                        ))
+            self._post(lambda: self._on_update_done(summary, before, reinstalled))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_update_done(self, summary, before, reinstalled):
+        self._update_busy = False
+        if not summary.get("ok"):
+            why = summary.get("error") or "no network?"
+            self.update_status.config(
+                text="Update check failed (%s) - continuing with local runtime %s" % (why, before),
+                fg=RED,
+            )
+            return
+        version = summary.get("version") or "?"
+        changed = summary.get("changed") or []
+        if not changed:
+            self.update_status.config(text="Up to date (v%s)" % version, fg=GREEN)
+            return
+        self.update_status.config(text="Updated to v%s - restart the launcher to apply" % version, fg=GREEN)
+        self._note("Runtime updated: %d file(s) changed (%s -> %s)." % (len(changed), before, version))
+        if reinstalled:
+            self._note("Mod reinstalled into the Mods folder - restart the game to apply.")
+        else:
+            self._note("Press 'Install mod' to install the updated mod into the game.")
 
     # ----------------------------------------------------------------- saves
     def _slot_items(self):
@@ -742,6 +845,32 @@ class LauncherApp(object):
         _save_settings(self.settings)
 
 
+def _load_app_modules():
+    """Import the runtime modules (after the synced tree has been mounted).
+
+    These were previously module-level imports; they are deferred so the
+    updater-mounted runtime tree (not the frozen copies) wins the import.
+    Idempotent - safe to call from both ``main()`` and ``LauncherApp.__init__``.
+    """
+    global SlotMeta, human_size, human_time  # noqa: PLW0603
+    global ts4_user_folder, mods_folder, saves_folder, game_executable, steam_game_id  # noqa: PLW0603
+    global lobby  # noqa: PLW0603
+    global build_script_mod  # noqa: PLW0603
+    for entry in (ROOT, os.path.join(ROOT, "client_mod")):
+        if entry not in sys.path:
+            sys.path.insert(0, entry)
+    from save_metadata import SlotMeta, human_size, human_time
+    from tools.game_paths import (
+        ts4_user_folder,
+        mods_folder,
+        saves_folder,
+        game_executable,
+        steam_game_id,
+    )
+    from tools import lobby
+    import build_script_mod
+
+
 def _run_selftest(dest):
     """Headless frozen-bundle self-test (SIM4_MP_SELFTEST=<dir>).
 
@@ -769,6 +898,10 @@ def _run_selftest(dest):
 
 
 def main():
+    # Mount the synced runtime tree (if any) BEFORE importing the runtime
+    # modules, so the launcher runs the on-disk runtime - not the bundle.
+    updater.mount_runtime(CODE_ROOT)
+    _load_app_modules()
     selftest = os.environ.get("SIM4_MP_SELFTEST")
     if selftest:
         _run_selftest(selftest)
