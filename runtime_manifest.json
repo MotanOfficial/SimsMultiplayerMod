@@ -1,5 +1,5 @@
 {
- "version": "2026-09-18-4508cc1",
+ "version": "2026-09-18-c0f46ae",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -15,15 +15,15 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/commands/cheat_commands.py",
-   "sha256": "db8997c43e6396b8654db32973aefd026c5216ec51fd06acd9a1b6bc8d690cd9"
+   "sha256": "0b2c265d973cd347dec97943907583b538dd384c854b9fc35f255b685a8b2a96"
   },
   {
    "path": "client_mod/scripts/simmp_client/config.py",
-   "sha256": "a6dfc278d064511213e9a0f173c2d7cf8162076b14f2e4b8096af3e6155272ba"
+   "sha256": "aa40407a48c5afed14f0b42e05136113b2cbedc7723bddbbab0afef99ffaff56"
   },
   {
    "path": "client_mod/scripts/simmp_client/connectivity.py",
-   "sha256": "469c1d4a5206c4c597463020d18cadcabc02664d14eff6a3e5dce9085e7171d1"
+   "sha256": "8c106925b4f04e60617ca09da3913949f02489ebb94b6ce759a9eef6079f5ad5"
   },
   {
    "path": "client_mod/scripts/simmp_client/hooks/__init__.py",
@@ -32,6 +32,10 @@
   {
    "path": "client_mod/scripts/simmp_client/hooks/game_hooks.py",
    "sha256": "34005f345835efd759294404a1876816603994774f86a6765843022d6d9e5364"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/logfile.py",
+   "sha256": "774c3880a7bf557ac95f019e5e31198d200f43d801e4ad48e8af05f9a019ef3d"
   },
   {
    "path": "client_mod/scripts/simmp_client/networking/__init__.py",
@@ -51,7 +55,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/sims4_plugin.py",
-   "sha256": "6657ce6c7f60b51b3190c86c7e5d06f6a77a4ddc829e82351c1fe81371c728c5"
+   "sha256": "faa89170c10de88eb58d61d880a6cba1373f819dc0b7617472c017261cc7b821"
   },
   {
    "path": "client_mod/scripts/simmp_client/state/__init__.py",
@@ -67,11 +71,11 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/state/session.py",
-   "sha256": "77ca7323f9bfda1c4c5ba85e696948e653f8df334bdef1fdfcf816eee1ed3baa"
+   "sha256": "87af7a2c19ecff9fefda5f601b488ff9fdd47164c6af03fe351ea9b8fd8c73ec"
   },
   {
    "path": "client_mod/scripts/simmp_client/state/world.py",
-   "sha256": "194b8a34230071ee2a1148306d1a1c1a1a774642788255d454ffe528b75c4fc6"
+   "sha256": "0f254d51bb104ad49a349f8a67910c58b64890730b8267b56e7e9638fc613b58"
   },
   {
    "path": "client_mod/scripts/simmp_client/ui.py",
@@ -87,7 +91,7 @@
   },
   {
    "path": "protocol/simmp/constants.py",
-   "sha256": "84d4cf6c87263878c2a3364276ebf2c240d095514bc28daaaf1fa358ae7d0230"
+   "sha256": "731c4cf4f31ed3c49d4040daf2a89cc1f8693fbb346536f14b1e3ae7161d1eba"
   },
   {
    "path": "protocol/simmp/framing.py",
@@ -95,11 +99,11 @@
   },
   {
    "path": "protocol/simmp/messages.py",
-   "sha256": "d26ad57c819f348c1e1a937ff8949cacfc2195f674e3eb453494f12aebb1ed81"
+   "sha256": "ee863cee9b7ada8e76bdfaaef4797486a1bab9575426474254fb299a0b154f83"
   },
   {
    "path": "protocol/simmp/validation.py",
-   "sha256": "d3c2aee61a2481a59c4316968dfe316be1e2df8f93de8eb3141af44b4df1193f"
+   "sha256": "ebe2952ad5666101e5a53ee3126b2d4a1fc41132b3a098f9a3026f540f3cf581"
   },
   {
    "path": "server/__init__.py",
@@ -131,7 +135,7 @@
   },
   {
    "path": "server/protocol/handlers.py",
-   "sha256": "3d01416b229a8dcc8e756ed791102c41083dab037a574a0fa04ff3140091164f"
+   "sha256": "e1ad21d22113361057b0f31084cc9afafec0aad346fd958401a882409e94bfc1"
   },
   {
    "path": "server/rooms/__init__.py",
