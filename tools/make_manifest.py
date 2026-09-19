@@ -70,7 +70,7 @@ def _iter_files():
                 continue
             if "__pycache__" in child.parts:
                 continue
-            if not child.name.endswith(QML_SUFFIXES):
+            if not child.name.endswith(QML_SUFFIXES) and child.name != "qmldir":
                 continue
             yield child
 

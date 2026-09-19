@@ -1,5 +1,5 @@
 {
- "version": "2026-09-19-c69dc9a",
+ "version": "2026-09-19-2f86d30",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -200,6 +200,10 @@
   {
    "path": "tools/launcher_ui/components/StatusCard.qml",
    "sha256": "9748d00aafc621424da11eaf0415061e023e1294feb23aeaaa7a68a7abdeb2f9"
+  },
+  {
+   "path": "tools/launcher_ui/qmldir",
+   "sha256": "5243c0d1534d9510d443b576efbb88ed0c23ca804828638bc9d83eb17721e454"
   },
   {
    "path": "tools/lobby.py",
