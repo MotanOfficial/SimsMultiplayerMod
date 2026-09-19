@@ -6,7 +6,7 @@ Usage::
 
 Outputs ``dist/Sims4MultiplayerLauncher.exe`` (windowed, one-file). No
 third-party dependencies are required on the target machine — everything
-(lobby server, save sync, tkinter UI, GDI+ thumbnail extraction) ships
+(lobby server, save sync, PySide6/QML UI, GDI+ thumbnail extraction) ships
 inside the .exe. The .exe is the stable bootstrap: actual runtime code is
 synced incrementally from GitHub by ``tools/updater.py`` into the user's
 runtime folder, so updates never mean re-transferring this .exe. Just
@@ -33,6 +33,7 @@ ADD_DATA = [
     (ROOT / "client_mod" / "scripts",    "client_mod/scripts"),
     (ROOT / "protocol",                  "protocol"),
     (ROOT / "client_mod" / "build_script_mod.py", "client_mod"),
+    (ROOT / "tools" / "launcher_ui",     "tools/launcher_ui"),
 ]
 
 HIDDEN_IMPORTS = [
@@ -56,6 +57,11 @@ HIDDEN_IMPORTS = [
     "tools.lobby",
     "tools.save_metadata",
     "tools.updater",
+    # Qt runtime modules the QML engine loads lazily but PyInstaller must
+    # trace now so their hook-collected binaries/qml data are bundled.
+    "PySide6.QtQml",
+    "PySide6.QtQuick",
+    "PySide6.QtQuickControls2",
 ]
 
 SEARCH_PATHS = [
