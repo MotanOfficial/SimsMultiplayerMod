@@ -34,6 +34,8 @@ RUNTIME_PATHS = [
     ("server", True),
     ("tools/game_paths.py", False),
     ("tools/lobby.py", False),
+    ("tools/launcher_bridge.py", False),
+    ("tools/launcher_lobby.py", False),
     ("tools/save_metadata.py", False),
     ("tools/save_sync.py", False),
 ]

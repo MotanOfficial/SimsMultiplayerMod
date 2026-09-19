@@ -1,5 +1,5 @@
 {
- "version": "2026-09-18-c0f46ae",
+ "version": "2026-09-19-0b2feb0",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -166,8 +166,16 @@
    "sha256": "11de265db830c48fd7477b07307d45d653cfc3710bab9ab3f92968e16c05c0b0"
   },
   {
+   "path": "tools/launcher_bridge.py",
+   "sha256": "ac3bcd47bf91b5cd5e596003e7de2405162c861040dbbf549f0777627b9446d1"
+  },
+  {
+   "path": "tools/launcher_lobby.py",
+   "sha256": "3689dc7f4bf3b08f2d44bc35e98b81032e105704a58921a63a92e3164c386383"
+  },
+  {
    "path": "tools/lobby.py",
-   "sha256": "e0998c782efbb228ff4d8b01e9017780acd03590911099b10ce399545badaf96"
+   "sha256": "892f4383aef0e2855af8796501099580308d134714652a23f8ea639db577864a"
   },
   {
    "path": "tools/save_metadata.py",
