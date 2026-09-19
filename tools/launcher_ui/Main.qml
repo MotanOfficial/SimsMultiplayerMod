@@ -1,598 +1,482 @@
-import QtQuick
+﻿import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Window
 import "components"
 
 ApplicationWindow {
     id: root
-    width: 920
-    height: 800
-    minimumWidth: 800
-    minimumHeight: 660
+    width: 1100
+    height: 760
+    minimumWidth: 900
+    minimumHeight: 620
     visible: true
-    title: "Sims 4 Multiplayer - Lobby"
+    title: "Sims 4 Multiplayer"
     color: Theme.cBg
     font.family: Theme.fFont
 
-    onClosing: {
-        bridge.shutdown()
-    }
+    property int navIndex: 0
 
-    ColumnLayout {
+    onClosing: bridge.shutdown()
+
+    RowLayout {
         anchors.fill: parent
-        anchors.margins: 14
-        spacing: 8
+        spacing: 0
 
-        // ---------------------------------------------------------- header
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 12
-            Rectangle {
-                width: 4
-                Layout.preferredHeight: 40
-                radius: 2
-                color: Theme.cAccent
-            }
-            ColumnLayout {
-                spacing: 1
-                Text {
-                    text: "Sims 4 Multiplayer"
-                    color: Theme.cFg
-                    font.pixelSize: 20
-                    font.bold: true
-                }
-                Text {
-                    text: "LAN co-op lobby - host or join a session"
-                    color: Theme.cMuted
-                    font.pixelSize: 11
-                }
-            }
-            Item { Layout.fillWidth: true }
-            Text {
-                id: playerBadge
-                text: bridge.playerCount === 1 ? "1 player connected" : bridge.playerCount + " players connected"
-                visible: bridge.playerCount > 0
-                color: Theme.cGreen
-                font.pixelSize: 11
-                font.bold: true
-                horizontalAlignment: Text.AlignRight
-            }
-        }
-
-        // -------------------------------------------------------- setup panel
+        // ==================================================== sidebar (60px rail)
         Rectangle {
-            Layout.fillWidth: true
-            color: Theme.cPane
-            radius: 8
-            border.color: Theme.cBorder
+            Layout.preferredWidth: 60
+            Layout.fillHeight: true
+            color: Theme.cBgDeep
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 14
-                spacing: 8
+                anchors.topMargin: 20
+                anchors.bottomMargin: 20
+                spacing: 0
 
-                SectionHeader { label: "Setup" }
-
-                GridLayout {
-                    Layout.fillWidth: true
-                    columns: 3
-                    rows: 3
-                    columnSpacing: 8
-                    rowSpacing: 6
-
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: 36
+                    Layout.preferredHeight: 36
+                    Layout.bottomMargin: 24
+                    radius: 10
+                    color: Theme.cAccent
                     Text {
-                        text: "Game files"
-                        color: Theme.cMuted
-                        font.pixelSize: 12
-                        Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
-                        Layout.preferredWidth: 96
+                        anchors.centerIn: parent
+                        text: "S4"
+                        color: "#ffffff"
+                        font.family: Theme.fFont
+                        font.pixelSize: 13
+                        font.bold: true
                     }
-                    AppTextField {
-                        id: fieldGame
-                        Layout.fillWidth: true
-                        text: bridge.gamePath
-                        onTextChanged: bridge.gamePath = text
-                    }
-                    RowLayout {
-                        spacing: 0
-                        AppButton {
-                            text: "Auto"
-                            fgColor: Theme.cAccent
-                            font.bold: false
-                            font.pixelSize: 11
-                            padding: 6
-                            leftPadding: 10
-                            rightPadding: 10
-                            onClicked: bridge.autoFill("game")
-                        }
-                        AppButton {
-                            text: "Browse"
-                            fgColor: Theme.cAccent
-                            font.bold: false
-                            font.pixelSize: 11
-                            padding: 6
-                            leftPadding: 10
-                            rightPadding: 10
-                            onClicked: bridge.browse("game")
-                        }
-                    }
+                }
 
-                    Text {
-                        text: "Mods folder"
-                        color: Theme.cMuted
-                        font.pixelSize: 12
-                        Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
-                        Layout.preferredWidth: 96
-                    }
-                    AppTextField {
-                        id: fieldMods
+                Repeater {
+                    model: [
+                        { icon: "\u25b6", index: 0 },
+                        { icon: "\u2699", index: 1 },
+                        { icon: "\u2630", index: 2 }
+                    ]
+                    Item {
                         Layout.fillWidth: true
-                        text: bridge.modsPath
-                        onTextChanged: bridge.modsPath = text
-                    }
-                    RowLayout {
-                        spacing: 0
-                        AppButton {
-                            text: "Auto"
-                            fgColor: Theme.cAccent
-                            font.bold: false
-                            font.pixelSize: 11
-                            padding: 6
-                            leftPadding: 10
-                            rightPadding: 10
-                            onClicked: bridge.autoFill("mods")
+                        Layout.preferredHeight: 52
+                        property bool active: navIndex === modelData.index
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 3
+                            height: 26
+                            radius: 1.5
+                            color: parent.active ? Theme.cAccent : "transparent"
                         }
-                        AppButton {
-                            text: "Browse"
-                            fgColor: Theme.cAccent
-                            font.bold: false
-                            font.pixelSize: 11
-                            padding: 6
-                            leftPadding: 10
-                            rightPadding: 10
-                            onClicked: bridge.browse("mods")
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 40
+                            height: 40
+                            radius: 10
+                            color: parent.active ? Qt.rgba(255, 255, 255, 0.08) : (ma.containsMouse ? Qt.rgba(255, 255, 255, 0.05) : "transparent")
                         }
-                    }
-
-                    Text {
-                        text: "Saves folder"
-                        color: Theme.cMuted
-                        font.pixelSize: 12
-                        Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
-                        Layout.preferredWidth: 96
-                    }
-                    AppTextField {
-                        id: fieldSaves
-                        Layout.fillWidth: true
-                        text: bridge.savesPath
-                        onTextChanged: bridge.savesPath = text
-                    }
-                    RowLayout {
-                        spacing: 0
-                        AppButton {
-                            text: "Auto"
-                            fgColor: Theme.cAccent
-                            font.bold: false
-                            font.pixelSize: 11
-                            padding: 6
-                            leftPadding: 10
-                            rightPadding: 10
-                            onClicked: bridge.autoFill("saves")
+                        Text {
+                            anchors.centerIn: parent
+                            text: modelData.icon
+                            color: parent.active ? Theme.cFg : Theme.cMuted
+                            font.pixelSize: (modelData.index === 0 ? 14 : 16)
                         }
-                        AppButton {
-                            text: "Browse"
-                            fgColor: Theme.cAccent
-                            font.bold: false
-                            font.pixelSize: 11
-                            padding: 6
-                            leftPadding: 10
-                            rightPadding: 10
-                            onClicked: bridge.browse("saves")
+                        MouseArea {
+                            id: ma
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: navIndex = modelData.index
                         }
                     }
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 8
+                Item { Layout.fillHeight: true }
 
-                    AppButton {
-                        text: "Install mod"
-                        bgColor: Theme.cAccent
-                        bgHover: Theme.cAccentHover
-                        fgColor: "#ffffff"
-                        onClicked: bridge.installMod()
-                    }
-                    AppButton {
-                        text: "Check updates"
-                        fgColor: Theme.cAccent
-                        onClicked: bridge.checkUpdates()
-                    }
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredHeight: 18
+                    Layout.preferredWidth: 34
+                    radius: 9
+                    color: Qt.rgba(255, 255, 255, 0.06)
+                    visible: bridge.playerCount > 0
                     Text {
-                        text: "Auto-update"
-                        color: Theme.cFg
-                        font.pixelSize: 12
+                        anchors.centerIn: parent
+                        text: "\u25cf " + bridge.playerCount
+                        color: Theme.cGreen
+                        font.family: Theme.fFont
+                        font.pixelSize: 10
+                        font.bold: true
                     }
-                    Switch {
-                        id: autoSwitch
-                        checked: bridge.autoUpdate
-                        onToggled: bridge.autoUpdate = checked
-                    }
-                    Item { Layout.fillWidth: true }
-                    Text {
-                        id: setupStatus
-                        text: ""
-                        font.pixelSize: 12
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideRight
-                    }
-                }
-
-                Text {
-                    id: updateStatus
-                    Layout.fillWidth: true
-                    font.pixelSize: 12
-                    elide: Text.ElideRight
                 }
             }
         }
 
-        // -------------------------------------------------------------- tabs
-        TabBar {
-            id: tabBar
-            Layout.fillWidth: true
-            Layout.topMargin: 2
-            background: Rectangle { color: "transparent" }
+        Rectangle { Layout.fillHeight: true; Layout.preferredWidth: 1; color: Theme.cBorder }
 
-            TabButton {
-                id: hostTabBtn
-                text: "  Host a game  "
-                font.pixelSize: 12
-                font.bold: true
-                background: Rectangle {
-                    radius: 6
-                    color: hostTabBtn.checked ? Theme.cAccent : "transparent"
-                }
-                contentItem: Text {
-                    text: hostTabBtn.text
-                    color: hostTabBtn.checked ? "#ffffff" : Theme.cMuted
-                    font: hostTabBtn.font
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-            }
-            TabButton {
-                id: joinTabBtn
-                text: "  Join a game  "
-                font.pixelSize: 12
-                font.bold: true
-                background: Rectangle {
-                    radius: 6
-                    color: joinTabBtn.checked ? Theme.cAccent : "transparent"
-                }
-                contentItem: Text {
-                    text: joinTabBtn.text
-                    color: joinTabBtn.checked ? "#ffffff" : Theme.cMuted
-                    font: joinTabBtn.font
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-            }
-        }
-
+        // ==================================================== content
         StackLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            currentIndex: tabBar.currentIndex
+            currentIndex: navIndex
 
-            // ---------------------------------------------------- host page
-            Rectangle {
-                color: Theme.cPane
-                radius: 8
-                border.color: Theme.cBorder
+            // ------------------------------------------------ page 0: play
+            ScrollView {
+                id: playPage
+                clip: true
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-                ScrollView {
-                    id: hostScroll
-                    anchors.fill: parent
-                    anchors.margins: 14
-                    clip: true
-                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-                    ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                ColumnLayout {
+                    x: 32
+                    width: playPage.width - 64
+                    spacing: 20
 
                     ColumnLayout {
-                        width: hostScroll.availableWidth
-                        spacing: 10
+                        Layout.fillWidth: true
+                        Layout.topMargin: 32
+                        spacing: 4
+                        Text {
+                            text: "Play on LAN"
+                            color: Theme.cFg
+                            font.pixelSize: 24
+                            font.bold: true
+                        }
+                        Text {
+                            text: "Host a new game or join your friends\u2019 session"
+                            color: Theme.cMuted
+                            font.pixelSize: 12
+                        }
+                    }
 
-                        SectionHeader { label: "Lobby" }
+// two equal cards
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
 
-                        GridLayout {
+                        // ---- HOST GAME
+                        Rectangle {
                             Layout.fillWidth: true
-                            columns: 4
-                            columnSpacing: 8
-                            rowSpacing: 6
+                            Layout.preferredHeight: 400
+                            color: Theme.cPane
+                            radius: 10
+                            border.width: 1
+                            border.color: Theme.cBorder
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 24
+                                spacing: 14
 
-                            Text {
-                                text: "Port"
-                                color: Theme.cMuted
-                                font.pixelSize: 12
-                                Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
-                                Layout.preferredWidth: 64
+                                Text {
+                                    text: "HOST GAME"
+                                    color: Theme.cFg
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                    font.letterSpacing: 1.2
+                                }
+                                Text {
+                                    text: "Select the save game you would like to play with."
+                                    color: Theme.cMuted
+                                    font.pixelSize: 11
+                                    wrapMode: Text.Wrap
+                                }
+
+                                Item { Layout.preferredHeight: 4 }
+
+                                ColumnLayout { Layout.fillWidth: true; spacing: 6
+                                    Text { text: "YOUR NAME"; color: Theme.cMuted; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
+                                    AppTextField { Layout.fillWidth: true; text: bridge.hostName; placeholderText: "Enter player name"; onTextChanged: bridge.hostName = text }
+                                }
+                                ColumnLayout { Layout.fillWidth: true; spacing: 6
+                                    Text { text: "SAVE GAME"; color: Theme.cMuted; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
+                                    RowLayout { Layout.fillWidth: true; spacing: 8
+                                        AppComboBox {
+                                            id: saveCombo
+                                            Layout.fillWidth: true
+                                            model: bridge.saves
+                                            enabled: bridge.saves.length > 0
+                                            onCurrentIndexChanged: bridge.selectSave(currentIndex)
+                                        }
+                                        AppButton {
+                                            text: "Browse"
+                                            implicitWidth: 84
+                                            onClicked: bridge.refreshSaves()
+                                        }
+                                    }
+                                }
+
+                                Item { Layout.fillHeight: true }
+
+                                AppButton {
+                                    text: bridge.lobbyRunning ? "Hosting..." : "Host Game"
+                                    Layout.fillWidth: true
+                                    bgColor: Theme.cAccent
+                                    bgHover: Theme.cAccentHover
+                                    enabled: !bridge.lobbyRunning
+                                    onClicked: bridge.startLobby()
+                                }
                             }
-                            AppTextField {
-                                id: hostPortField
-                                Layout.preferredWidth: 90
-                                text: bridge.hostPort
-                                onTextChanged: bridge.hostPort = text
+                        }
+
+// ---- JOIN GAME
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 400
+                            color: Theme.cPane
+                            radius: 10
+                            border.width: 1
+                            border.color: Theme.cBorder
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 24
+                                spacing: 14
+
+                                Text {
+                                    text: "JOIN GAME"
+                                    color: Theme.cFg
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                    font.letterSpacing: 1.2
+                                }
+                                Text {
+                                    text: "Join an existing game using the server IP address."
+                                    color: Theme.cMuted
+                                    font.pixelSize: 11
+                                    wrapMode: Text.Wrap
+                                }
+
+                                Item { Layout.preferredHeight: 4 }
+
+                                ColumnLayout { Layout.fillWidth: true; spacing: 6
+                                    Text { text: "SERVER IP ADDRESS"; color: Theme.cMuted; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
+                                    AppTextField { Layout.fillWidth: true; text: bridge.joinIp; placeholderText: "Enter IP address here"; onTextChanged: bridge.joinIp = text }
+                                }
+                                ColumnLayout { Layout.fillWidth: true; spacing: 6
+                                    Text { text: "YOUR NAME"; color: Theme.cMuted; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
+                                    AppTextField { Layout.fillWidth: true; text: bridge.joinName; placeholderText: "Enter player name"; onTextChanged: bridge.joinName = text }
+                                }
+                                ColumnLayout { Layout.fillWidth: true; spacing: 6
+                                    Text { text: "PORT"; color: Theme.cMuted; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
+                                    AppTextField { Layout.fillWidth: true; text: bridge.joinPort; placeholderText: "8765"; onTextChanged: bridge.joinPort = text }
+                                }
+
+                                Item { Layout.fillHeight: true }
+
+                                AppButton {
+                                    text: bridge.joining ? "Joining..." : "Join Game"
+                                    Layout.fillWidth: true
+                                    bgColor: Theme.cAccent
+                                    bgHover: Theme.cAccentHover
+                                    enabled: !bridge.joining
+                                    onClicked: bridge.joinLobby()
+                                }
                             }
-                            Text {
-                                text: "Your LAN IP"
-                                color: Theme.cMuted
-                                font.pixelSize: 12
-                                Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
-                                Layout.leftMargin: 12
-                                Layout.preferredWidth: 84
-                            }
+                        }
+                    }
+
+                    // status panel
+                    Rectangle {
+                        Layout.fillWidth: true
+                        visible: bridge.lobbyRunning || bridge.joining
+                        color: Theme.cPane
+                        radius: 10
+                        border.width: 1
+                        border.color: Theme.cBorder
+                        implicitHeight: statusCol.implicitHeight + 32
+                        ColumnLayout {
+                            id: statusCol
+                            anchors.fill: parent
+                            anchors.margins: 16
+                            spacing: 10
+                            StatusCard { id: lobbyCard; Layout.fillWidth: true; visible: bridge.lobbyRunning }
+                            StatusCard { id: shareCard; Layout.fillWidth: true; visible: bridge.lobbyRunning && bridge.canShare }
+                            StatusCard { id: joinCard; Layout.fillWidth: true; visible: bridge.joining }
+
                             RowLayout {
                                 Layout.fillWidth: true
-                                spacing: 6
+                                visible: bridge.lobbyRunning
+                                spacing: 8
+                                Text { text: "LAN IP"; color: Theme.cMuted; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
                                 AppComboBox {
                                     id: lanIpCombo
-                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 240
                                     model: bridge.lanIps
                                     Component.onCompleted: currentIndex = bridge.lanIpIndex
                                     onCurrentIndexChanged: bridge.lanIpSelected(currentIndex)
                                 }
-                                AppButton {
-                                    text: "Copy"
-                                    fgColor: Theme.cAccent
-                                    font.bold: false
-                                    font.pixelSize: 11
-                                    padding: 6
-                                    leftPadding: 10
-                                    rightPadding: 10
-                                    onClicked: bridge.copyIp()
-                                }
+                                AppButton { text: "Copy"; implicitWidth: 64; onClicked: bridge.copyIp() }
+                                Item { Layout.fillWidth: true }
+                                AppButton { text: "Share Save"; fgColor: Theme.cAccent; enabled: bridge.canShare; onClicked: bridge.shareSave() }
+                                AppButton { text: "Start Game"; bgColor: Theme.cGreen; bgHover: Qt.lighter(Theme.cGreen, 1.1); enabled: bridge.canHostStart; onClicked: bridge.startGameHost() }
+                                AppButton { text: "Stop"; fgColor: Theme.cRed; onClicked: bridge.stopLobby() }
                             }
-                        }
 
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            Text {
-                                text: "Your name"
-                                color: Theme.cMuted
-                                font.pixelSize: 12
-                                Layout.preferredWidth: 64
-                            }
-                            AppTextField {
+                            RowLayout {
                                 Layout.fillWidth: true
-                                text: bridge.hostName
-                                onTextChanged: bridge.hostName = text
-                            }
-                        }
-
-                        StatusCard {
-                            id: lobbyCard
-                            Layout.fillWidth: true
-                        }
-
-                        RowLayout {
-                            spacing: 8
-                            AppButton {
-                                text: "Start lobby"
-                                bgColor: Theme.cAccent
-                                bgHover: Theme.cAccentHover
-                                fgColor: "#ffffff"
-                                enabled: !bridge.lobbyRunning
-                                onClicked: bridge.startLobby()
-                            }
-                            AppButton {
-                                text: "Stop lobby"
-                                fgColor: Theme.cRed
-                                enabled: bridge.lobbyRunning
-                                onClicked: bridge.stopLobby()
-                            }
-                        }
-
-                        SectionHeader { label: "Save to share" }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            AppComboBox {
-                                id: saveCombo
-                                Layout.fillWidth: true
-                                model: bridge.saves
-                                enabled: bridge.saves.length > 0
-                                onCurrentIndexChanged: bridge.selectSave(currentIndex)
-                            }
-                            AppButton {
-                                text: "Refresh"
-                                fgColor: Theme.cAccent
-                                font.bold: false
-                                font.pixelSize: 11
-                                padding: 6
-                                leftPadding: 10
-                                rightPadding: 10
-                                onClicked: bridge.refreshSaves()
-                            }
-                        }
-
-                        StatusCard {
-                            id: shareCard
-                            Layout.fillWidth: true
-                        }
-
-                        RowLayout {
-                            spacing: 8
-                            AppButton {
-                                text: "Share save with players"
-                                fgColor: Theme.cAccent
-                                enabled: bridge.canShare
-                                onClicked: bridge.shareSave()
-                            }
-                            AppButton {
-                                text: "Start game"
-                                bgColor: Theme.cGreen
-                                bgHover: Theme.cGreen
-                                fgColor: "#0d1f17"
-                                enabled: bridge.canHostStart
-                                onClicked: bridge.startGameHost()
+                                visible: bridge.canJoinStart
+                                spacing: 8
+                                Text { text: "Connected to server"; color: Theme.cMuted; font.pixelSize: 11 }
+                                Item { Layout.fillWidth: true }
+                                AppButton { text: "Start Game"; bgColor: Theme.cGreen; bgHover: Qt.lighter(Theme.cGreen, 1.1); onClicked: bridge.startGameJoin() }
                             }
                         }
                     }
+
+                    Item { Layout.preferredHeight: 32 }
                 }
             }
 
-            // ---------------------------------------------------- join page
-            Rectangle {
-                color: Theme.cPane
-                radius: 8
-                border.color: Theme.cBorder
+            // ------------------------------------------------ page 1: settings
+            ScrollView {
+                id: settingsPage
+                clip: true
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-                ScrollView {
-                    id: joinScroll
-                    anchors.fill: parent
-                    anchors.margins: 14
-                    clip: true
-                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-                    ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                ColumnLayout {
+                    x: 32
+                    width: settingsPage.width - 64
+                    spacing: 20
 
                     ColumnLayout {
-                        width: joinScroll.availableWidth
-                        spacing: 10
-
-                        SectionHeader { label: "Lobby address" }
-
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: 6
-                            columnSpacing: 8
-                            rowSpacing: 6
-
-                            Text {
-                                text: "Host IP"
-                                color: Theme.cMuted
-                                font.pixelSize: 12
-                                Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
-                                Layout.preferredWidth: 64
-                            }
-                            AppTextField {
-                                Layout.fillWidth: true
-                                Layout.columnSpan: 5
-                                text: bridge.joinIp
-                                onTextChanged: bridge.joinIp = text
-                            }
-
-                            Text {
-                                text: "Port"
-                                color: Theme.cMuted
-                                font.pixelSize: 12
-                                Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
-                                Layout.preferredWidth: 64
-                            }
-                            AppTextField {
-                                Layout.preferredWidth: 90
-                                text: bridge.joinPort
-                                onTextChanged: bridge.joinPort = text
-                            }
-                            Text {
-                                text: "Your name"
-                                color: Theme.cMuted
-                                font.pixelSize: 12
-                                Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
-                                Layout.leftMargin: 12
-                                Layout.preferredWidth: 84
-                            }
-                            AppTextField {
-                                Layout.fillWidth: true
-                                text: bridge.joinName
-                                onTextChanged: bridge.joinName = text
-                            }
+                        Layout.fillWidth: true
+                        Layout.topMargin: 32
+                        spacing: 4
+                        Text {
+                            text: "Settings"
+                            color: Theme.cFg
+                            font.pixelSize: 24
+                            font.bold: true
                         }
-
-                        StatusCard {
-                            id: joinCard
-                            Layout.fillWidth: true
-                        }
-
-                        RowLayout {
-                            spacing: 8
-                            AppButton {
-                                text: bridge.joining ? "Joining..." : "Join lobby"
-                                bgColor: Theme.cAccent
-                                bgHover: Theme.cAccentHover
-                                fgColor: "#ffffff"
-                                enabled: !bridge.joining
-                                onClicked: bridge.joinLobby()
-                            }
-                            AppButton {
-                                text: "Start game"
-                                bgColor: Theme.cGreen
-                                bgHover: Theme.cGreen
-                                fgColor: "#0d1f17"
-                                enabled: bridge.canJoinStart
-                                onClicked: bridge.startGameJoin()
-                            }
+                        Text {
+                            text: "Set up the required The Sims 4 file and folder paths."
+                            color: Theme.cMuted
+                            font.pixelSize: 12
                         }
                     }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        color: Theme.cPane
+                        radius: 10
+                        border.width: 1
+                        border.color: Theme.cBorder
+                        implicitHeight: settingsCol.implicitHeight + 48
+                        ColumnLayout {
+                            id: settingsCol
+                            anchors.fill: parent
+                            anchors.margins: 24
+                            spacing: 16
+
+                            ColumnLayout { Layout.fillWidth: true; spacing: 6
+                                Text { text: "THE SIMS 4 GAME"; color: Theme.cMuted; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
+                                RowLayout { Layout.fillWidth: true; spacing: 8
+                                    AppTextField { id: fieldGame; Layout.fillWidth: true; text: bridge.gamePath; placeholderText: "Path to TS4_x64.exe"; onTextChanged: bridge.gamePath = text }
+                                    AppButton { text: "Browse"; implicitWidth: 84; onClicked: bridge.browse("game") }
+                                }
+                            }
+                            ColumnLayout { Layout.fillWidth: true; spacing: 6
+                                Text { text: "MODS FOLDER"; color: Theme.cMuted; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
+                                RowLayout { Layout.fillWidth: true; spacing: 8
+                                    AppTextField { id: fieldMods; Layout.fillWidth: true; text: bridge.modsPath; placeholderText: "Documents\\Electronic Arts\\The Sims 4\\Mods"; onTextChanged: bridge.modsPath = text }
+                                    AppButton { text: "Browse"; implicitWidth: 84; onClicked: bridge.browse("mods") }
+                                }
+                            }
+                            ColumnLayout { Layout.fillWidth: true; spacing: 6
+                                Text { text: "DOCUMENTS"; color: Theme.cMuted; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
+                                RowLayout { Layout.fillWidth: true; spacing: 8
+                                    AppTextField { id: fieldSaves; Layout.fillWidth: true; text: bridge.savesPath; placeholderText: "Documents\\Electronic Arts\\The Sims 4"; onTextChanged: bridge.savesPath = text }
+                                    AppButton { text: "Browse"; implicitWidth: 84; onClicked: bridge.browse("saves") }
+                                }
+                            }
+
+                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.cBorder }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                AppButton { text: "Install Mod"; bgColor: Theme.cAccent; bgHover: Theme.cAccentHover; onClicked: bridge.installMod() }
+                                AppButton { text: "Check Updates"; onClicked: bridge.checkUpdates() }
+                                Item { Layout.fillWidth: true }
+                                Text { text: "Auto-update"; color: Theme.cFg; font.pixelSize: 11 }
+                                Switch {
+                                    id: autoSwitch
+                                    checked: bridge.autoUpdate
+                                    onToggled: bridge.autoUpdate = checked
+                                    implicitWidth: 44
+                                    implicitHeight: 24
+                                    indicator: Rectangle {
+                                        y: (autoSwitch.height - height) / 2
+                                        x: autoSwitch.checked ? autoSwitch.width - width - 3 : 3
+                                        width: 18
+                                        height: 18
+                                        radius: 9
+                                        color: autoSwitch.checked ? "#ffffff" : Theme.cMuted
+                                        Behavior on x { NumberAnimation { duration: 150 } }
+                                    }
+                                    background: Rectangle {
+                                        implicitHeight: 24
+                                        implicitWidth: 44
+                                        radius: 12
+                                        color: autoSwitch.checked ? Theme.cAccent : "#2a2e3a"
+                                        Behavior on color { ColorAnimation { duration: 150 } }
+                                    }
+                                }
+                            }
+
+                            Text { id: setupStatus; Layout.fillWidth: true; font.pixelSize: 11; font.family: Theme.fMono; color: Theme.cMuted; wrapMode: Text.Wrap }
+                            Text { id: updateStatus; Layout.fillWidth: true; font.pixelSize: 11; font.family: Theme.fMono; color: Theme.cMuted; wrapMode: Text.Wrap }
+                        }
+                    }
+
+                    Item { Layout.preferredHeight: 32 }
                 }
             }
-        }
 
-        // ------------------------------------------------------- activity log
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 150
-            color: Theme.cPane
-            radius: 8
-            border.color: Theme.cBorder
-
+            // ------------------------------------------------ page 2: log
             ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 12
-                spacing: 6
+                x: 32
+                width: root.width - 60 - 64
+                spacing: 20
 
-                RowLayout {
+                ColumnLayout {
                     Layout.fillWidth: true
+                    Layout.topMargin: 32
+                    spacing: 4
                     Text {
-                        text: "ACTIVITY"
-                        color: Theme.cMuted
-                        font.pixelSize: 10
+                        text: "Activity Log"
+                        color: Theme.cFg
+                        font.pixelSize: 24
                         font.bold: true
-                        font.letterSpacing: 1.2
                     }
-                    Item { Layout.fillWidth: true }
-                    AppButton {
-                        text: "Clear"
-                        fgColor: Theme.cAccent
-                        font.bold: false
-                        font.pixelSize: 11
-                        padding: 6
-                        leftPadding: 10
-                        rightPadding: 10
-                        onClicked: logModel.clear()
+                    Text {
+                        text: "Live output from the lobby server and launcher."
+                        color: Theme.cMuted
+                        font.pixelSize: 12
                     }
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    color: "#0f1116"
-                    radius: 6
+                    Layout.bottomMargin: 32
+                    color: Theme.cBgDeep
+                    radius: 10
+                    border.width: 1
+                    border.color: Theme.cBorder
 
                     ListView {
                         id: logList
                         anchors.fill: parent
-                        anchors.margins: 6
+                        anchors.margins: 12
                         clip: true
                         model: ListModel { id: logModel }
-                        spacing: 1
+                        spacing: 2
                         ScrollBar.vertical: ScrollBar {}
                         onCountChanged: positionViewAtEnd()
                         delegate: Text {
-                            width: logList.width - 14
+                            width: logList.width - 12
                             text: model.line
                             color: model.kind === "error" ? Theme.cRed
                                  : (model.kind === "muted" ? Theme.cMuted : Theme.cFg)
@@ -606,7 +490,7 @@ ApplicationWindow {
         }
     }
 
-    // ----------------------------------------------------------- bridge glue
+    // ========================================================== bridge glue
     Connections {
         target: bridge
         function onLogAppended(line, kind) { logModel.append({ "line": line, "kind": kind }) }

@@ -3,24 +3,19 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import ".."
 
-RowLayout {
+ColumnLayout {
     id: sh
     property string label: ""
     property bool fill: true
     Layout.fillWidth: fill
+    spacing: 0
+
     Text {
-        text: sh.label.toUpperCase()
-        color: Theme.cMuted
+        text: sh.label
+        color: Theme.cFg
         font.family: Theme.fFont
-        font.pixelSize: 10
+        font.pixelSize: 13
         font.bold: true
-        font.letterSpacing: 1.2
-    }
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: 1
-        Layout.topMargin: 5
-        Layout.bottomMargin: 5
-        color: Theme.cBorder
+        font.letterSpacing: 0.8
     }
 }

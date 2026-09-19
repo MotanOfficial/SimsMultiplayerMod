@@ -4,17 +4,19 @@ import ".."
 
 TextField {
     id: field
-    color: Theme.cFg
+    implicitHeight: 40
+    color: Theme.cFgDark
     font.family: Theme.fFont
     font.pixelSize: 12
-    padding: 8
+    padding: 12
     selectionColor: Theme.cAccent
     selectedTextColor: "#ffffff"
-    placeholderTextColor: Theme.cMuted
+    placeholderTextColor: "#999999"
     background: Rectangle {
-        radius: 4
+        radius: 6
         color: Theme.cField
-        border.color: field.activeFocus ? Theme.cAccent : Theme.cBorder
         border.width: 1
+        border.color: !field.enabled ? "#e0e0e0"
+                     : (field.activeFocus ? Theme.cAccent : Theme.cFieldBorder)
     }
 }

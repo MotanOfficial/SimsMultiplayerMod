@@ -4,27 +4,36 @@ import ".."
 
 Button {
     id: ctrl
-    property color bgColor: Theme.cPane
-    property color bgHover: Theme.cField
-    property color fgColor: Theme.cFg
+    property bool ghost: ctrl.bgColor.a === 0
+    property color bgColor: "transparent"
+    property color bgHover: "transparent"
+    property color fgColor: Theme.cAccent
     font.family: Theme.fFont
     font.pixelSize: 12
     font.bold: true
+    implicitHeight: 40
     padding: 10
-    topPadding: 7
-    bottomPadding: 7
-    leftPadding: 16
-    rightPadding: 16
+    leftPadding: 18
+    rightPadding: 18
+
     contentItem: Text {
         text: ctrl.text
-        color: ctrl.enabled ? ctrl.fgColor : Theme.cMuted
+        color: !ctrl.enabled ? Theme.cMuted
+             : (ctrl.ghost ? ctrl.fgColor : "#ffffff")
         font: ctrl.font
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
     }
+
     background: Rectangle {
-        radius: 4
-        color: !ctrl.enabled ? Theme.cField
-             : (ctrl.pressed || ctrl.hovered ? ctrl.bgHover : ctrl.bgColor)
+        radius: 6
+        color: ctrl.ghost ? "transparent"
+             : (ctrl.hovered ? Qt.darker(ctrl.bgColor, 1.08) : ctrl.bgColor)
+        border.width: ctrl.ghost ? 1 : 0
+        border.color: !ctrl.enabled ? Theme.cBorder
+                     : (ctrl.ghost && ctrl.hovered ? Theme.cAccent : Theme.cBorderSoft)
     }
+
+    scale: ctrl.pressed ? 0.97 : 1.0
+    Behavior on scale { NumberAnimation { duration: 90 } }
 }

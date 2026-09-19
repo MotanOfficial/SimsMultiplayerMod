@@ -4,38 +4,40 @@ import ".."
 
 ComboBox {
     id: combo
+    implicitHeight: 40
     font.family: Theme.fFont
     font.pixelSize: 12
-    padding: 8
+    padding: 12
     contentItem: Text {
         text: combo.displayText
-        color: Theme.cFg
+        color: Theme.cFgDark
         font: combo.font
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
     }
     background: Rectangle {
-        radius: 4
+        radius: 6
         color: Theme.cField
-        border.color: combo.activeFocus ? Theme.cAccent : Theme.cBorder
         border.width: 1
+        border.color: !combo.enabled ? "#e0e0e0"
+                     : (combo.activeFocus || combo.popup.visible ? Theme.cAccent : Theme.cFieldBorder)
     }
     indicator: Text {
-        x: combo.width - 24
+        x: combo.width - 26
         y: combo.height / 2 - contentHeight / 2
         text: "\u25be"
-        color: Theme.cMuted
-        font.pixelSize: 13
+        color: "#666666"
+        font.pixelSize: 12
     }
     popup: Popup {
-        y: combo.height + 3
+        y: combo.height + 4
         width: combo.width
-        implicitHeight: contentItem.implicitHeight + 4
-        padding: 2
+        implicitHeight: Math.min(contentItem.implicitHeight + 8, 220)
+        padding: 4
         background: Rectangle {
-            radius: 4
-            color: Theme.cPane
-            border.color: Theme.cBorder
+            radius: 6
+            color: "#ffffff"
+            border.color: Theme.cFieldBorder
         }
         contentItem: ListView {
             implicitHeight: contentHeight
@@ -47,8 +49,8 @@ ComboBox {
     }
     delegate: ItemDelegate {
         id: row
-        width: combo.width - 4
-        height: 32
+        implicitHeight: 34
+        width: combo.width - 8
         highlighted: combo.highlightedIndex === index
         contentItem: Text {
             text: {
@@ -57,13 +59,14 @@ ComboBox {
                 if (m !== null && m.hasOwnProperty("text")) return m.text
                 return String(m)
             }
-            color: row.highlighted ? "#ffffff" : Theme.cFg
+            color: row.highlighted ? "#ffffff" : Theme.cFgDark
             font: combo.font
+            leftPadding: 10
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
         }
         background: Rectangle {
-            radius: 3
+            radius: 4
             color: row.highlighted ? Theme.cAccent : "transparent"
         }
     }
