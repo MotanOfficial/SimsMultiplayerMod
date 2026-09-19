@@ -1,5 +1,5 @@
 {
- "version": "2026-09-19-b4661a4",
+ "version": "2026-09-19-c69dc9a",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -175,7 +175,7 @@
   },
   {
    "path": "tools/launcher_ui/Main.qml",
-   "sha256": "a0ee323651d167ae84ec6352be1c91b06e7880b6e8c30d6f857dd298a29ef395"
+   "sha256": "3d62d8ea099f2f7e35a59549e4a2761f723dbf64008214421b9d5103cd90b5f6"
   },
   {
    "path": "tools/launcher_ui/Theme.qml",

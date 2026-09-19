@@ -84,7 +84,8 @@ def main():
     files = []
     for path in sorted(_iter_files(), key=lambda p: p.relative_to(ROOT).as_posix()):
         rel = path.relative_to(ROOT).as_posix()
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        data = path.read_bytes().replace(b"\r\n", b"\n")
+        digest = hashlib.sha256(data).hexdigest()
         files.append({"path": rel, "sha256": digest})
 
     manifest = {"version": version, "files": files}
