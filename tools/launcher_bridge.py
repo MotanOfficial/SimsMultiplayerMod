@@ -56,6 +56,8 @@ class LauncherBridge(SetupMixin, LobbyMixin, QObject):
         self.server = None
         self.push_thread = None
         self.join_thread = None
+        self._share_client = None
+        self._join_client = None
         self._selected_save = None
         self._save_items = []
         self._save_labels = []
@@ -227,6 +229,7 @@ class LauncherBridge(SetupMixin, LobbyMixin, QObject):
             "join_name": self._join_name,
         })
         _save_settings(self.settings)
+        self._disconnect_held()
         if self.server is not None:
             self.server.stop()
             self.server = None
@@ -240,6 +243,10 @@ class LauncherBridge(SetupMixin, LobbyMixin, QObject):
 
     def _note(self, text, kind="info"):
         self.logAppended.emit("%s %s" % (self._now(), text), kind)
+
+    @Slot(str)
+    def qmlWarning(self, text):
+        self.logAppended.emit("%s [QML] %s" % (self._now(), text.strip()), "qml")
 
     @staticmethod
     def _now():

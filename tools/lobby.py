@@ -265,7 +265,7 @@ class ServerHandle:
         return self.thread is not None and self.thread.is_alive()
 
 
-def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost", on_line=None):
+def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost", on_line=None, keep_alive=False, held=None):
     """Upload ``path`` to the server; return the ack ``(ok, reached)``.
 
     Raises on connect/upload failure; returns ``(False, reached)`` when the
@@ -273,6 +273,10 @@ def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost", 
     ``on_line(line)``, if given, receives every client ``[MP][...]`` log line
     as it happens (SAVE_ACK progress/errors) so the caller can surface a live
     progress bar in its own UI.
+    ``keep_alive=True`` keeps the connected client alive after a successful
+    push instead of disconnecting in ``finally``; pass a ``held`` list and the
+    live client is appended to it so the caller owns the lifecycle (disconnect
+    it later on stop/quit).
     """
     with open(path, "rb") as handle:
         payload = handle.read()
@@ -293,6 +297,7 @@ def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost", 
     if not client.connect(host, port):
         client.disconnect()
         raise RuntimeError("connect() returned False; is the lobby running?")
+    keep = False
     try:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -344,22 +349,26 @@ def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost", 
             if ack_line is not None:
                 break
             time.sleep(0.05)
-        client.disconnect()
         if ack_line is None:
+            client.disconnect()
             raise RuntimeError("no final-chunk SAVE_ACK within %.0fs" % timeout)
+        ok = bool(ack_line) and "ok=True" in ack_line
         reached = [
             int(token.split("=", 1)[1]) for token in ack_line.split() if token.startswith("reached=")
         ]
-        ok = bool(ack_line) and "ok=True" in ack_line
+        keep = bool(keep_alive and held is not None)
+        if keep:
+            held.append(client)
         return (ok, reached[0] if reached else 0)
     finally:
-        try:
-            client.disconnect()
-        except Exception:
-            pass
+        if not keep:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
 
 
-def receive_save_file(host, port, name="LobbyClient", timeout=60.0, save_dir_candidates=None, on_connected=None, on_line=None):
+def receive_save_file(host, port, name="LobbyClient", timeout=60.0, save_dir_candidates=None, on_connected=None, on_line=None, keep_alive=False, held=None):
     """Connect, pump, and report an inbound save + where it was written.
 
     Returns ``(slot, path)`` once a ``SAVE_PUSH`` completes and is written to
@@ -373,6 +382,9 @@ def receive_save_file(host, port, name="LobbyClient", timeout=60.0, save_dir_can
     caller can tell the user they are actually in the lobby. ``on_line(line)``,
     if given, receives every client ``[MP][...]`` log line as it happens so the
     caller can surface save-transfer progress/errors in its own UI.
+    ``keep_alive=True`` keeps the connected client alive after a successful
+    receive instead of disconnecting in ``finally``; pass a ``held`` list and
+    the live client is appended to it so the caller owns the lifecycle.
     """
     log = []
 
@@ -388,6 +400,7 @@ def receive_save_file(host, port, name="LobbyClient", timeout=60.0, save_dir_can
     if not client.connect(host, port):
         client.disconnect()
         raise RuntimeError("connect() returned False; is the lobby running?")
+    keep = False
     try:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -412,11 +425,15 @@ def receive_save_file(host, port, name="LobbyClient", timeout=60.0, save_dir_can
                     continue
                 slot = os.path.basename(path)
                 if slot:
+                    keep = bool(keep_alive and held is not None)
+                    if keep:
+                        held.append(client)
                     return (slot, path)
             time.sleep(0.05)
         raise RuntimeError("no save received within %.0fs" % timeout)
     finally:
-        try:
-            client.disconnect()
-        except Exception:
-            pass
+        if not keep:
+            try:
+                client.disconnect()
+            except Exception:
+                pass

@@ -58,6 +58,7 @@ class LobbyMixin(object):
 
     @Slot()
     def stopLobby(self):
+        self._disconnect_held()
         if self.server is not None:
             self.server.stop()
             self.server = None
@@ -127,7 +128,9 @@ class LobbyMixin(object):
             self._share_line(line)
 
         def work():
+            self._disconnect_held("_share_client")
             try:
+                held = []
                 ok, reached = RUNTIME.lobby.push_save_file(
                     self._selected_save,
                     "127.0.0.1",
@@ -135,9 +138,14 @@ class LobbyMixin(object):
                     name=name,
                     timeout=60.0,
                     on_line=on_line,
+                    keep_alive=True,
+                    held=held,
                 )
+                if held:
+                    self._share_client = held[0]
                 self._on_share_done(ok, reached)
             except Exception as exc:  # noqa: BLE001
+                self._share_client = None
                 self._on_share_done(False, 0, exc)
 
         self.push_thread = threading.Thread(target=work, daemon=True)
@@ -242,7 +250,9 @@ class LobbyMixin(object):
             self._join_line(line)
 
         def work():
+            self._disconnect_held("_join_client")
             try:
+                held = []
                 slot, path = RUNTIME.lobby.receive_save_file(
                     host,
                     port,
@@ -250,9 +260,14 @@ class LobbyMixin(object):
                     timeout=120.0,
                     on_connected=on_connected,
                     on_line=on_line,
+                    keep_alive=True,
+                    held=held,
                 )
+                if held:
+                    self._join_client = held[0]
                 self._on_join_done(slot, path)
             except Exception as exc:  # noqa: BLE001
+                self._join_client = None
                 self._on_join_done(None, None, exc)
 
         self.join_thread = threading.Thread(target=work, daemon=True)
@@ -353,6 +368,7 @@ class LobbyMixin(object):
         if self.server is None or not self.server.thread_alive():
             self._note("Start the lobby first.", kind="error")
             return
+        self._disconnect_held("_share_client")
         self._note("Starting the game on the host side...")
         self._launch_game("host", "127.0.0.1", self.server.actual_port)
         self._set_can_host_start(False)
@@ -361,11 +377,23 @@ class LobbyMixin(object):
     def startGameJoin(self):
         host = self._join_ip.strip()
         port = self._join_port.strip()
+        self._disconnect_held("_join_client")
         self._note("Starting the game on the join side...")
         self._launch_game("join", host or "127.0.0.1", port or DEFAULT_PORT)
         self._set_can_join_start(False)
 
     # ---------------------------------------------------------- status helpers
+    def _disconnect_held(self, *names):
+        names = names or ("_share_client", "_join_client")
+        for name in names:
+            client = getattr(self, name, None)
+            if client is not None:
+                try:
+                    client.disconnect()
+                except Exception:
+                    pass
+                setattr(self, name, None)
+
     def _current_ip(self):
         if getattr(self, "_lan_ips", None) and len(self._lan_ips) > getattr(self, "_lan_ip_index", 0):
             return self._lan_ips[self._lan_ip_index]

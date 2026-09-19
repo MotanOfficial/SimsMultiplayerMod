@@ -14,7 +14,10 @@ ApplicationWindow {
     color: Theme.cBg
     font.family: Theme.fFont
 
+    function _escapeHtml(s) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") }
     property int navIndex: 0
+    property int qmlLineCount: 0
+    property int logLineCount: 0
 
     onClosing: bridge.shutdown()
 
@@ -290,7 +293,7 @@ ApplicationWindow {
                             anchors.margins: 16
                             spacing: 10
                             StatusCard { id: lobbyCard; Layout.fillWidth: true; visible: bridge.lobbyRunning }
-                            StatusCard { id: shareCard; Layout.fillWidth: true; visible: bridge.lobbyRunning && bridge.canShare }
+                            StatusCard { id: shareCard; Layout.fillWidth: true; visible: bridge.lobbyRunning && bridge.canShare && shareCard.cardPhase !== "" }
                             StatusCard { id: joinCard; Layout.fillWidth: true; visible: bridge.joining }
 
                             RowLayout {
@@ -434,7 +437,7 @@ ApplicationWindow {
                 }
             }
 
-            // ------------------------------------------------ page 2: log
+// ------------------------------------------------ page 2: log
             ColumnLayout {
                 x: 32
                 width: root.width - 60 - 64
@@ -457,35 +460,126 @@ ApplicationWindow {
                     }
                 }
 
-                Rectangle {
+                // ---- launcher & server log
+                ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.bottomMargin: 32
-                    color: Theme.cBgDeep
-                    radius: 10
-                    border.width: 1
-                    border.color: Theme.cBorder
+                    Layout.bottomMargin: 8
+                    spacing: 6
 
-                    ListView {
-                        id: logList
-                        anchors.fill: parent
-                        anchors.margins: 12
-                        clip: true
-                        model: ListModel { id: logModel }
-                        spacing: 2
-                        ScrollBar.vertical: ScrollBar {}
-                        onCountChanged: positionViewAtEnd()
-                        delegate: Text {
-                            width: logList.width - 12
-                            text: model.line
-                            color: model.kind === "error" ? Theme.cRed
-                                 : (model.kind === "muted" ? Theme.cMuted : Theme.cFg)
-                            font.family: Theme.fMono
-                            font.pixelSize: 11
-                            wrapMode: Text.Wrap
+                    Text {
+                        text: "Launcher & Server"
+                        color: Theme.cMuted
+                        font.pixelSize: 10
+                        font.bold: true
+                        font.letterSpacing: 0.8
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        color: Theme.cBgDeep
+                        radius: 8
+                        border.width: 1
+                        border.color: Theme.cBorder
+
+                        Flickable {
+                            id: logFlick
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            clip: true
+                            contentHeight: logTextEdit.height
+                            flickableDirection: Flickable.VerticalFlick
+                            ScrollBar.vertical: ScrollBar {
+                                policy: ScrollBar.AsNeeded
+                            }
+                            TextEdit {
+                                id: logTextEdit
+                                width: logFlick.width
+                                color: Theme.cFg
+                                font.family: Theme.fMono
+                                font.pixelSize: 11
+                                wrapMode: TextEdit.Wrap
+                                readOnly: true
+                                selectByMouse: true
+                                selectByKeyboard: true
+                                selectionColor: Theme.cAccent
+                                selectedTextColor: "#ffffff"
+                                textFormat: Text.RichText
+                            }
                         }
                     }
                 }
+
+                // ---- QML warnings & errors
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.bottomMargin: 32
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Text {
+                            text: "QML Warnings"
+                            color: Theme.cMuted
+                            font.pixelSize: 10
+                            font.bold: true
+                            font.letterSpacing: 0.8
+                        }
+                        Text {
+                            text: qmlLineCount === 0 ? "No QML warnings (clean load)."
+                                                       : (qmlLineCount + " warning(s).")
+                            color: qmlLineCount === 0 ? Theme.cGreen : Theme.cAmber
+                            font.pixelSize: 11
+                        }
+                        Item { Layout.fillWidth: true }
+                        AppButton {
+                            text: "Clear QML"
+                            implicitWidth: 80
+                            implicitHeight: 26
+                            font.pixelSize: 10
+                            visible: qmlLineCount > 0
+                            onClicked: { qmlTextEdit.clear(); qmlLineCount = 0 }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        color: Theme.cBgDeep
+                        radius: 8
+                        border.width: 1
+                        border.color: Theme.cBorder
+
+                        Flickable {
+                            id: qmlFlick
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            clip: true
+                            contentHeight: qmlTextEdit.height
+                            flickableDirection: Flickable.VerticalFlick
+                            ScrollBar.vertical: ScrollBar {
+                                policy: ScrollBar.AsNeeded
+                            }
+                            TextEdit {
+                                id: qmlTextEdit
+                                width: qmlFlick.width
+                                color: Theme.cAmber
+                                font.family: Theme.fMono
+                                font.pixelSize: 11
+                                wrapMode: TextEdit.Wrap
+                                readOnly: true
+                                selectByMouse: true
+                                selectByKeyboard: true
+                                selectionColor: Theme.cAccent
+                                selectedTextColor: "#ffffff"
+                                textFormat: Text.RichText
+                            }
+                        }
+                    }
+}
             }
         }
     }
@@ -493,7 +587,17 @@ ApplicationWindow {
     // ========================================================== bridge glue
     Connections {
         target: bridge
-        function onLogAppended(line, kind) { logModel.append({ "line": line, "kind": kind }) }
+        function onLogAppended(line, kind) {
+            var escaped = _escapeHtml(line)
+            if (kind === "qml") {
+                qmlTextEdit.append("<span style='color:#ffab40'>" + escaped + "</span>")
+                qmlLineCount++
+            } else {
+                var c = kind === "error" ? "#ff5252" : (kind === "muted" ? "#8a94a6" : "#eceff4")
+                logTextEdit.append("<span style='color:" + c + "'>" + escaped + "</span>")
+                logLineCount++
+            }
+        }
         function onSetupStatusChanged(text, color) { setupStatus.text = text; setupStatus.color = color }
         function onUpdateStatusChanged(text, color) { updateStatus.text = text; updateStatus.color = color }
         function onCardStatus(cardId, phase, detail, color, progress, showBar, done) {

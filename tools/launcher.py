@@ -92,11 +92,31 @@ def main():
     bridge = LauncherBridge()
     engine.rootContext().setContextProperty("bridge", bridge)
 
+    qml_warning_buffer = []
+
+    def _on_qml_warnings(messages):
+        for m in messages:
+            try:
+                text = m.toString()
+            except Exception:
+                text = str(m)
+            if text:
+                qml_warning_buffer.append(text.split("\n")[0])
+
+    def _flush_qml_warnings():
+        for line in qml_warning_buffer:
+            bridge.qmlWarning(line)
+        qml_warning_buffer.clear()
+
+    engine.warnings.connect(_on_qml_warnings)
+
     qml_path = os.path.join(ROOT, "tools", "launcher_ui", "Main.qml")
     engine.load(QUrl.fromLocalFile(qml_path))
     if not engine.rootObjects():
         print("[LAUNCHER] QML failed to load: %s" % qml_path)
         return 1
+
+    QTimer.singleShot(0, _flush_qml_warnings)
 
     if os.environ.get("SIM4_MP_SMOKE"):
         QTimer.singleShot(2500, app.quit)
