@@ -38,7 +38,10 @@ RUNTIME_PATHS = [
     ("tools/launcher_lobby.py", False),
     ("tools/save_metadata.py", False),
     ("tools/save_sync.py", False),
+    ("tools/launcher_ui", True),
 ]
+
+QML_SUFFIXES = (".py", ".qml", ".qmldir")
 
 
 def _git_short_sha():
@@ -62,8 +65,12 @@ def _iter_files():
         if not is_dir:
             yield path
             continue
-        for child in path.rglob("*.py"):
+        for child in path.rglob("*"):
+            if child.is_dir():
+                continue
             if "__pycache__" in child.parts:
+                continue
+            if not child.name.endswith(QML_SUFFIXES):
                 continue
             yield child
 

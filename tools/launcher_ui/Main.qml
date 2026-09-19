@@ -281,7 +281,7 @@ ApplicationWindow {
                     // status panel
                     Rectangle {
                         Layout.fillWidth: true
-                        visible: bridge.lobbyRunning || bridge.joining
+                        visible: bridge.lobbyRunning || bridge.joining || bridge.canJoinStart
                         color: Theme.cPane
                         radius: 10
                         border.width: 1

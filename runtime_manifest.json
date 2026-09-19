@@ -1,5 +1,5 @@
 {
- "version": "2026-09-19-0b2feb0",
+ "version": "2026-09-19-b4661a4",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -172,6 +172,34 @@
   {
    "path": "tools/launcher_lobby.py",
    "sha256": "3689dc7f4bf3b08f2d44bc35e98b81032e105704a58921a63a92e3164c386383"
+  },
+  {
+   "path": "tools/launcher_ui/Main.qml",
+   "sha256": "a0ee323651d167ae84ec6352be1c91b06e7880b6e8c30d6f857dd298a29ef395"
+  },
+  {
+   "path": "tools/launcher_ui/Theme.qml",
+   "sha256": "5d4f46c26ae49f168890dcee0dce08c70d1db0235d5cad55848bf9cfe2e536d2"
+  },
+  {
+   "path": "tools/launcher_ui/components/AppButton.qml",
+   "sha256": "6472a5ab1cafd8c59aa2b086d6a1fe56b80dcefe127d5a24d5096fc48e284bcf"
+  },
+  {
+   "path": "tools/launcher_ui/components/AppComboBox.qml",
+   "sha256": "9476a731a1292b4ee39399e56f3bc7a85af17994ee115a24970ee80b93a41f20"
+  },
+  {
+   "path": "tools/launcher_ui/components/AppTextField.qml",
+   "sha256": "6121c0a6bfeeee204d739807952f8957906eaf8ec891e59145003049a06ad02a"
+  },
+  {
+   "path": "tools/launcher_ui/components/SectionHeader.qml",
+   "sha256": "23e8d37b9138d95a6b73e01a746aa80b2aac5b1c3fc6c8d40041c416229e92f3"
+  },
+  {
+   "path": "tools/launcher_ui/components/StatusCard.qml",
+   "sha256": "9748d00aafc621424da11eaf0415061e023e1294feb23aeaaa7a68a7abdeb2f9"
   },
   {
    "path": "tools/lobby.py",

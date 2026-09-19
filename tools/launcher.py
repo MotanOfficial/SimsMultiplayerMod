@@ -111,6 +111,10 @@ def main():
     engine.warnings.connect(_on_qml_warnings)
 
     qml_path = os.path.join(ROOT, "tools", "launcher_ui", "Main.qml")
+    if getattr(sys, "_MEIPASS", None):
+        synced = os.path.join(CODE_ROOT, "tools", "launcher_ui", "Main.qml")
+        if os.path.isfile(synced):
+            qml_path = synced
     engine.load(QUrl.fromLocalFile(qml_path))
     if not engine.rootObjects():
         print("[LAUNCHER] QML failed to load: %s" % qml_path)
