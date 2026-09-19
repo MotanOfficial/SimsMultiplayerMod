@@ -773,7 +773,8 @@ def apply_interactions(entries):
     """Push remote-owned interactions onto local mirrors of the same sim.
 
     Each entry is ``{"key": "sim:<id>", "interaction": "<ClassName>",
-    "affordance": "<Name>", "affordance_id": <guid64>, "target": "sim:<id>"}``
+    "affordance": "<Name>", "affordance_id": <guid64>, "target": "sim:<id>"
+    or "obj:<def>@<grid>"}``
     mirroring what another player's sim is doing. When the same sim exists
     locally (shared save, same persistent id), this resolves the super
     affordance by its tuning id and asks the local sim to run it, so the
@@ -825,7 +826,7 @@ def apply_interactions(entries):
                 continue
             if _sim_already_running(sim, affordance_id):
                 continue
-            target = _interaction_target_sim(entry.get("target"))
+            target = _interaction_target(entry.get("target"))
             if _push_interaction(sim, affordance, target):
                 started += 1
                 _applier_log(
@@ -905,6 +906,18 @@ def _interaction_target_sim(target_key):
         return sim_info.get_sim_instance()
     except Exception:
         return None
+
+
+def _interaction_target(target_key):
+    """Resolve a mirrored target key to a local sim or lot object, else None."""
+    if not isinstance(target_key, str) or not target_key:
+        return None
+    if target_key.startswith("obj:"):
+        parsed = _parse_object_key(target_key)
+        if parsed is None:
+            return None
+        return _find_object_for_key(parsed)
+    return _interaction_target_sim(target_key)
 
 
 def _push_interaction(sim, affordance, target):
@@ -1024,6 +1037,20 @@ def sample_world_objects():
     return entries
 
 
+def household_sim_keys():
+    """Sorted ``sim:<id>`` keys for the instanced household, or empty offline.
+
+    Shared-save co-op: both clients sample the same household, so this is the
+    roster the per-player sim ownership split is computed from.
+    """
+    keys = []
+    for sim_info, _sim in _instanced_sim_infos():
+        key = _sim_key(sim_info)
+        if key is not None:
+            keys.append(key)
+    return sorted(keys)
+
+
 def sample_interactions():
     """Sample household sims' running interactions for replication.
 
@@ -1037,9 +1064,10 @@ def sample_interactions():
     ``affordance_id`` are the super affordance the player actually clicked,
     the identity the receiving client needs to push the same interaction onto
     its mirrored sim. ``target`` is the aim key when the interaction targets
-    another sim (self/object targets are omitted — only sims are replicated).
-    All extra fields are best-effort: entries degrade to label-only when the
-    extraction fails. Safe to call outside the game.
+    another sim (``sim:<id>``) or a lot object (``obj:<def>@<grid>``);
+    self-targets are omitted. All extra fields are best-effort: entries
+    degrade to label-only when the extraction fails. Safe to call outside
+    the game.
     """
     entries = []
     for sim_info, sim in _instanced_sim_infos():
@@ -1411,11 +1439,11 @@ def _interaction_affordance_name(interaction):
 
 
 def _interaction_target_key(interaction, actor_key):
-    """Aim key when the interaction targets another sim; else None.
+    """Aim key when the interaction targets another sim or a lot object.
 
-    Sims are the only replicated entity, so only sim targets yield a key.
-    Self-targets and object targets return None (the receiving client runs
-    the interaction without an explicit aim or skips it).
+    Sim targets are ``sim:<id>``; lot-object targets (bed, chair, ...) are
+    ``obj:<def>@<grid>`` so the receiving client can resolve the same
+    definition at the same spot in the shared save. Self-targets return None.
     """
     try:
         target = interaction.target
@@ -1426,13 +1454,20 @@ def _interaction_target_key(interaction, actor_key):
     try:
         target_id = target.sim_info.id
     except Exception:
+        target_id = None
+    if target_id is not None:
+        target_key = "sim:%s" % target_id
+        if target_key == actor_key:
+            return None
+        return target_key
+    try:
+        location = getattr(target, "location", None)
+        transform = getattr(location, "transform", None) if location is not None else None
+        if transform is None:
+            return None
+        return _object_key(target, transform)
+    except Exception:
         return None
-    if target_id is None:
-        return None
-    target_key = "sim:%s" % target_id
-    if target_key == actor_key:
-        return None
-    return target_key
 
 
 def set_sim_autonomy(sim_info, enabled):

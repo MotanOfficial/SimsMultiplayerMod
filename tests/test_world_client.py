@@ -3,6 +3,7 @@ import time
 import unittest
 
 from simmp_client.connectivity import MultiplayerClient
+from simmp_client.hooks import game_hooks
 from server.networking.server import MPServer
 from tests.test_client_engine import _wait_until
 
@@ -184,6 +185,103 @@ class WorldClientTests(unittest.TestCase):
 
         self.run_flow(_with_server(flow))
 
+
+    def test_assigned_sim_keys_deterministic(self):
+        """The shared-household sim split is deterministic per player."""
+        client = MultiplayerClient(client_name="Alice")
+        self.assertIsNone(client._assigned_sim_keys())
+        client.session.player_id = 1001
+        self.assertIsNone(client._assigned_sim_keys())
+        client.session.room_players = {1000: {"player_id": 1000}, 1001: {"player_id": 1001}}
+        self.assertIsNone(client._assigned_sim_keys())
+
+        original = game_hooks.household_sim_keys
+        try:
+            game_hooks.household_sim_keys = lambda: ["sim:10", "sim:11", "sim:12"]
+            client.session.player_id = 1000
+            self.assertEqual(client._assigned_sim_keys(), {"sim:10", "sim:12"})
+            client.session.player_id = 1001
+            self.assertEqual(client._assigned_sim_keys(), {"sim:11"})
+        finally:
+            game_hooks.household_sim_keys = original
+
+    def test_shared_household_sim_split_no_fighting(self):
+        """Shared-save sims are claimed by their assigned player only."""
+        async def flow(server, port):
+            alice_log = []
+            alice = MultiplayerClient(client_name="Alice", notify=alice_log.append)
+            bob_log = []
+            bob = MultiplayerClient(client_name="Bob", notify=bob_log.append)
+            original = game_hooks.household_sim_keys
+            try:
+                self.assertTrue(alice.connect("127.0.0.1", port))
+                self.assertTrue(bob.connect("127.0.0.1", port))
+                self.assertTrue(await self._connected(alice))
+                self.assertTrue(await self._connected(bob))
+                alice_pid = alice.session.player_id
+                bob_pid = bob.session.player_id
+                self.assertLess(alice_pid, bob_pid)
+
+                game_hooks.household_sim_keys = lambda: ["sim:10", "sim:11", "sim:12"]
+
+                def shared_sampler():
+                    return [
+                        {"key": "sim:10", "fields": {"x": 1.0, "y": 0.0, "z": 0.0}},
+                        {"key": "sim:11", "fields": {"x": 2.0, "y": 0.0, "z": 0.0}},
+                        {"key": "sim:12", "fields": {"x": 3.0, "y": 0.0, "z": 0.0}},
+                    ]
+
+                alice.set_world_sampler(shared_sampler)
+                bob.set_world_sampler(shared_sampler)
+                alice.world_sync = True
+                bob.world_sync = True
+                alice.world_interval = 0.0
+                bob.world_interval = 0.0
+                alice_log[:] = []
+                bob_log[:] = []
+
+                alice._maybe_send_world_update()
+                bob._maybe_send_world_update()
+
+                self.assertTrue(await _wait_until(
+                    lambda: (alice.process_incoming() or True)
+                    and (bob.process_incoming() or True)
+                    and alice.session.world.get("sim:10") is not None
+                    and alice.session.world.get("sim:10").owner == alice_pid
+                    and alice.session.world.get("sim:11") is not None
+                    and alice.session.world.get("sim:11").owner == bob_pid
+                    and alice.session.world.get("sim:12") is not None
+                    and alice.session.world.get("sim:12").owner == alice_pid
+                    and bob.session.world.get("sim:11") is not None
+                    and bob.session.world.get("sim:11").owner == bob_pid
+                    and bob.session.world.get("sim:10") is not None
+                    and bob.session.world.get("sim:10").owner == alice_pid,
+                    timeout=5.0,
+                ), "ownership never settled along the deterministic split")
+
+                # Each client claimed only the sims assigned to it.
+                self.assertEqual(
+                    sum("Requested ownership of object 'sim:10'" in line for line in alice_log), 1
+                )
+                self.assertEqual(
+                    sum("Requested ownership of object 'sim:12'" in line for line in alice_log), 1
+                )
+                self.assertFalse(
+                    any("Requested ownership of object 'sim:11'" in line for line in alice_log)
+                )
+                self.assertEqual(
+                    sum("Requested ownership of object 'sim:11'" in line for line in bob_log), 1
+                )
+                self.assertFalse(
+                    any(("sim:10" in line or "sim:12" in line) and "Requested ownership" in line
+                        for line in bob_log)
+                )
+            finally:
+                game_hooks.household_sim_keys = original
+                alice.disconnect()
+                bob.disconnect()
+
+        self.run_flow(_with_server(flow))
 
     def test_remote_world_entries_reach_applier(self):
         """The world applier gets remote-owned entries, never our own."""

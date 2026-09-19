@@ -93,6 +93,43 @@ class GameHooksSamplerTests(unittest.TestCase):
 
         self.assertIsNone(game_hooks._interaction_target_key(NoTarget(), "sim:1"))
 
+    def test_interaction_object_target_key_and_resolver(self):
+        class FakeVec:
+            x = 1.0
+            y = 2.0
+            z = 3.0
+
+        class FakeTransform:
+            translation = FakeVec()
+            orientation = None
+
+        class FakeLocation:
+            transform = FakeTransform()
+
+        class FakeDef:
+            id = 555
+
+        class FakeObjectTarget:
+            location = FakeLocation()
+            definition = FakeDef()
+
+        class FakeObjectInteraction:
+            target = FakeObjectTarget()
+
+        interaction = FakeObjectInteraction()
+        self.assertEqual(
+            game_hooks._interaction_target_key(interaction, "sim:1"),
+            "obj:555@100_200_300",
+        )
+        # Object targets resolve to a local object; offline there is none.
+        self.assertIsNone(game_hooks._interaction_target("obj:555@100_200_300"))
+        self.assertIsNone(game_hooks._interaction_target(None))
+        self.assertIsNone(game_hooks._interaction_target("sim:7"))
+        self.assertIsNone(game_hooks._interaction_target("not-a-key"))
+
+    def test_household_sim_keys_offline(self):
+        self.assertEqual(game_hooks.household_sim_keys(), [])
+
     def test_sim_id_and_field_helpers(self):
         self.assertEqual(game_hooks._sim_id_from_key("sim:42"), 42)
         self.assertIsNone(game_hooks._sim_id_from_key("obj:42"))

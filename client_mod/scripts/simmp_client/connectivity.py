@@ -49,6 +49,7 @@ class MultiplayerClient:
         self._dropped_held = {}
         self._claimed_in_flight = set()
         self._claim_denied_until = {}
+        self._assigned_released = set()
         self.engine = None
         self.session = LocalSession()
         self.session.presence_ttl = self.presence_ttl
@@ -191,6 +192,7 @@ class MultiplayerClient:
         self._dropped_held = {}
         self._claimed_in_flight = set()
         self._claim_denied_until = {}
+        self._assigned_released = set()
         self._reconnect_attempt = 0
         self._next_reconnect_at = 0.0
         self._log("NET", "Disconnected")
@@ -916,7 +918,15 @@ class MultiplayerClient:
                 # while (clear the in-flight guard so a later release is seen)
                 # and back off so losers do not spam the server every tick.
                 self._claimed_in_flight.discard(ref)
-                self._claim_denied_until[ref] = time.time() + 30.0
+                if isinstance(ref, str) and ref.startswith("obj:"):
+                    # Shared save: the same lot object exists on every client and
+                    # the winner already mirrors it here, so a lost claim needs
+                    # no retry - it is re-enabled by the owner-null broadcast on
+                    # release. Sims keep the bounded retry so the assigned
+                    # driver can take over a wrongly-owned sim.
+                    self._claim_denied_until[ref] = float("inf")
+                else:
+                    self._claim_denied_until[ref] = time.time() + 30.0
         else:
             self._log("NET", "Unhandled message %s" % message_type)
 
@@ -1184,6 +1194,34 @@ class MultiplayerClient:
         except Exception:
             pass
 
+    def _assigned_sim_keys(self):
+        """The household sims this client should drive, or None (no split).
+
+        Shared save = every client samples the same household sims, so absent
+        a split all players fight over the same keys: whoever claims a sim
+        first owns it and the losers receive OBJECT_LOCKED storms while both
+        push the same sim's position. Sims are assigned to players round-robin
+        over the sorted household keys by sorted player_id, which every client
+        computes identically from the same save and room roster.
+
+        Returns None when the split cannot be determined (no room, no
+        household, or no household sims instanced yet) - callers then keep the
+        legacy claim-everything behavior until the split can be computed.
+        """
+        try:
+            sim_keys = game_hooks.household_sim_keys()
+        except Exception:
+            return None
+        mine = self.session.player_id
+        players = sorted(self.session.room_players.keys())
+        if mine is None or not players or mine not in players:
+            return None
+        if not sim_keys:
+            return None
+        slot = players.index(mine)
+        count = len(players)
+        return {key for i, key in enumerate(sim_keys) if i % count == slot}
+
     def _maybe_send_world_update(self):
         if not self.world_sync or self._world_sampler is None:
             return
@@ -1231,11 +1269,22 @@ class MultiplayerClient:
         else:
             self._world_seen_last.update(present)
         mine = self.session.player_id
+        assigned = self._assigned_sim_keys()
         updates = []
         now = time.time()
         for entry in present.values():
             key = entry.get("key")
             if not isinstance(key, str) or not key:
+                continue
+            if assigned is not None and key.startswith("sim:") and key not in assigned:
+                # A household sim another player drives in the shared save:
+                # mirror it, never fight for ownership. If we wrongly own it
+                # (a claim made before the split could be computed), hand it
+                # back once so the assigned driver can take over.
+                mirror = self.session.world.get(key)
+                if mirror is not None and mirror.owner == mine and key not in self._assigned_released:
+                    self._assigned_released.add(key)
+                    self.release_object(key)
                 continue
             mirror = self.session.world.get(key)
             if mirror is None or mirror.owner != mine:
@@ -1382,6 +1431,7 @@ class MultiplayerClient:
         if not sample:
             return
         mine = self.session.player_id
+        assigned = self._assigned_sim_keys()
         active = {}
         for entry in sample:
             key = entry.get("key")
@@ -1394,6 +1444,10 @@ class MultiplayerClient:
             if entry is not None and entry["player_id"] == mine and key not in active:
                 self.end_interaction(key)
         for key, entry in active.items():
+            if assigned is not None and key.startswith("sim:") and key not in assigned:
+                # Interactions of a household sim another player drives are
+                # mirrored here but proposed/run by their player only.
+                continue
             mirror = self.session.interactions.get(key)
             if mirror is not None:
                 continue
