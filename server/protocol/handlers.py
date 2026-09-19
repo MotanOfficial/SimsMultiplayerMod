@@ -362,11 +362,25 @@ class Handlers:
             room_id,
             zone_id,
         )
-        await conn.send(msg.make_object_claim_ack(key, conn.player_id))
+        obj = server.session.get_world_object(room_id, key, zone_id)
+        await conn.send(
+            msg.make_object_claim_ack(
+                key,
+                obj.owner if obj is not None else None,
+                co_owners=sorted(obj.co_owners) if obj is not None else None,
+            )
+        )
         await server.broadcast_zone(
             room_id,
             zone_id,
-            msg.make_object_ownership(room_id, key, conn.player_id, player_id=conn.player_id, zone_id=zone_id),
+            msg.make_object_ownership(
+                room_id,
+                key,
+                obj.owner if obj is not None else None,
+                player_id=conn.player_id,
+                zone_id=zone_id,
+                co_owners=sorted(obj.co_owners) if obj is not None else None,
+            ),
             exclude={conn.player_id},
         )
 
@@ -387,12 +401,21 @@ class Handlers:
             room_id,
             zone_id,
         )
-        await conn.send(msg.make_object_claim_ack(key, None))
+        obj = server.session.get_world_object(room_id, key, zone_id)
+        owner = None if obj is None else obj.owner
+        await conn.send(msg.make_object_claim_ack(key, owner))
         if released:
             await server.broadcast_zone(
                 room_id,
                 zone_id,
-                msg.make_object_ownership(room_id, key, None, player_id=conn.player_id, zone_id=zone_id),
+                msg.make_object_ownership(
+                    room_id,
+                    key,
+                    owner,
+                    player_id=conn.player_id,
+                    zone_id=zone_id,
+                    co_owners=sorted(obj.co_owners) if obj is not None else None,
+                ),
                 exclude={conn.player_id},
             )
 
@@ -463,7 +486,12 @@ class Handlers:
         key = payload["key"]
         zone_id = self._zone_of(conn, payload)
         removed = server.session.remove_world_object(room_id, key, zone_id)
-        if removed is not None and removed.owner is not None and removed.owner != conn.player_id:
+        if (
+            removed is not None
+            and removed.owner is not None
+            and removed.owner != conn.player_id
+            and conn.player_id not in removed.co_owners
+        ):
             # Not our object to delete: restore the entry and refuse.
             objects = server.session.get_world_object(room_id, key, zone_id)
             if objects is None:
@@ -682,11 +710,17 @@ class Handlers:
                     conn.player_id, conn.room_id, old_zone, server.interaction_cooldown
                 )
                 for key in world_keys:
+                    obj = server.session.get_world_object(conn.room_id, key, old_zone)
                     await server.broadcast_zone(
                         conn.room_id,
                         old_zone,
                         msg.make_object_ownership(
-                            conn.room_id, key, None, player_id=conn.player_id, zone_id=old_zone
+                            conn.room_id,
+                            key,
+                            None if obj is None else obj.owner,
+                            player_id=conn.player_id,
+                            zone_id=old_zone,
+                            co_owners=sorted(obj.co_owners) if obj is not None else None,
                         ),
                         exclude={conn.player_id},
                     )

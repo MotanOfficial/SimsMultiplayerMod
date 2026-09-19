@@ -90,10 +90,10 @@ class LocalSession:
         self.world.apply_delta(payload["room_id"], payload.get("zone_id"), payload["seq"], payload["updates"])
 
     def apply_object_ownership(self, payload):
-        self.world.apply_ownership(payload["key"], payload.get("owner"), payload.get("zone_id"))
+        self.world.apply_ownership(payload["key"], payload.get("owner"), payload.get("co_owners"), payload.get("zone_id"))
 
     def apply_object_claim_ack(self, payload):
-        self.world.apply_claim_ack(payload["key"], payload.get("owner"))
+        self.world.apply_claim_ack(payload["key"], payload.get("owner"), payload.get("co_owners"))
 
     def apply_player_joined(self, payload):
         self.room_id = payload["room_id"]

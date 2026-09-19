@@ -67,11 +67,17 @@ class Room:
 
 
 class WorldObject:
-    """Server-authoritative snapshot of a replicated object in one room."""
+    """Server-authoritative snapshot of a replicated object in one room.
+
+    `owner` is the primary player; `co_owners` are extra players sharing the
+    same key (shared household-sim control). The full owner set is
+    {owner} | co_owners.
+    """
 
     def __init__(self, key):
         self.key = key
         self.owner = None
+        self.co_owners = set()
         self.fields = {}
         self.rev = 0
 
@@ -226,31 +232,61 @@ class Session:
         return [self._world_entry(obj) for obj in objects.values()]
 
     def _world_entry(self, obj):
-        return {
+        entry = {
             "key": obj.key,
             "owner": obj.owner,
             "fields": dict(obj.fields),
         }
+        if obj.co_owners:
+            entry["co_owners"] = sorted(obj.co_owners)
+        return entry
 
     def claim_object(self, room_id, key, player_id, zone_id=None):
-        """Attempt to acquire ownership in `zone_id`. Returns (ok, already_owner, prev_owner)."""
+        """Attempt to acquire ownership in `zone_id`.
+
+        Returns (ok, already_owner, prev_owner). Household-sim keys
+        (`sim:` prefix) are shared: a second player claiming an owned sim is
+        added as a co-owner instead of being locked out, so both players can
+        drive the same sim in co-op. All other keys stay single-owner.
+        """
         objects = self._world_by_zone.setdefault(self._zone_key(room_id, zone_id), {})
         obj = objects.get(key)
         if obj is None:
             obj = WorldObject(key)
             objects[key] = obj
         if obj.owner is not None and obj.owner != player_id:
+            if key.startswith("sim:"):
+                obj.co_owners.add(player_id)
+                obj.co_owners.discard(obj.owner)
+                return (True, False, obj.owner)
             return (False, False, obj.owner)
+        if player_id in obj.co_owners:
+            obj.co_owners.discard(player_id)
         obj.owner = player_id
-        return (True, obj.owner == player_id and obj.owner is not None, None)
+        return (True, obj.owner == player_id and obj.owner is not None and not obj.co_owners, None)
 
     def release_object(self, room_id, key, player_id, zone_id=None):
-        """Release ownership in `zone_id` if held by `player_id`. Returns True if released."""
+        """Release ownership in `zone_id` if held by `player_id`.
+
+        A co-owner releasing only drops from the shared set; when the primary
+        releases, the lowest remaining co-owner is promoted. Returns True if
+        anything changed.
+        """
         obj = self._world_by_zone.get(self._zone_key(room_id, zone_id), {}).get(key)
-        if obj is None or obj.owner != player_id:
+        if obj is None:
             return False
-        obj.owner = None
-        return True
+        if obj.owner == player_id:
+            if obj.co_owners:
+                new_owner = min(obj.co_owners)
+                obj.co_owners.discard(new_owner)
+                obj.owner = new_owner
+            else:
+                obj.owner = None
+            return True
+        if player_id in obj.co_owners:
+            obj.co_owners.discard(player_id)
+            return True
+        return False
 
     def apply_world_update(self, room_id, key, fields, player_id, zone_id=None):
         """Apply a delta to an owned object in `zone_id`.
@@ -263,7 +299,7 @@ class Session:
         obj = self._world_by_zone.get(self._zone_key(room_id, zone_id), {}).get(key)
         if obj is None:
             return ("not_found", None)
-        if obj.owner != player_id:
+        if obj.owner != player_id and player_id not in obj.co_owners:
             return ("locked", obj.owner)
         changed = {
             name: value
@@ -401,15 +437,25 @@ class Session:
     def release_player_world(self, player_id):
         """Clear ownership of every object `player_id` owns.
 
-        Returns [(room_id, zone_id, key)] so the server can broadcast
-        `OBJECT_OWNERSHIP` (owner null). World ownership normally outlives a
-        disconnect (holding period), so this only runs on ghost eviction.
+        Returns [(room_id, zone_id, key)] so the server can broadcast the new
+        ownership state. A released primary promotes the lowest remaining
+        co-owner (shared sim control survives the holder leaving). World
+        ownership normally outlives a disconnect (holding period), so this
+        only runs on ghost eviction.
         """
         released = []
         for (room_id, zone_id), objects in list(self._world_by_zone.items()):
             for key, obj in list(objects.items()):
                 if obj.owner == player_id:
-                    obj.owner = None
+                    if obj.co_owners:
+                        new_owner = min(obj.co_owners)
+                        obj.co_owners.discard(new_owner)
+                        obj.owner = new_owner
+                    else:
+                        obj.owner = None
+                    released.append((room_id, zone_id, key))
+                elif player_id in obj.co_owners:
+                    obj.co_owners.discard(player_id)
                     released.append((room_id, zone_id, key))
         return released
 
@@ -426,7 +472,15 @@ class Session:
         objects = self._world_by_zone.get(partition, {})
         for key, obj in list(objects.items()):
             if obj.owner == player_id:
-                obj.owner = None
+                if obj.co_owners:
+                    new_owner = min(obj.co_owners)
+                    obj.co_owners.discard(new_owner)
+                    obj.owner = new_owner
+                else:
+                    obj.owner = None
+                world_released.append(key)
+            elif player_id in obj.co_owners:
+                obj.co_owners.discard(player_id)
                 world_released.append(key)
         interaction_released = []
         interactions = self._interactions_by_zone.get(partition, {})

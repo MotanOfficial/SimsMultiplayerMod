@@ -201,9 +201,15 @@ def make_world_delta(room_id, seq, updates, player_id=None, zone_id=None):
     return build_message("WORLD_DELTA", payload)
 
 
-def make_object_ownership(room_id, key, owner, player_id=None, zone_id=None):
-    """`owner` is a player_id (int) or None when an object is released."""
+def make_object_ownership(room_id, key, owner, player_id=None, zone_id=None, co_owners=None):
+    """`owner` is the primary player_id (int) or None when an object is released.
+
+    `co_owners` (optional list of ints) are the extra players sharing the key
+    (shared household-sim control); the full owner set is {owner} | co_owners.
+    """
     payload = {"room_id": room_id, "key": key, "owner": owner}
+    if co_owners:
+        payload["co_owners"] = [int(pid) for pid in co_owners]
     if player_id is not None:
         payload["player_id"] = player_id
     if zone_id is not None:
@@ -211,8 +217,11 @@ def make_object_ownership(room_id, key, owner, player_id=None, zone_id=None):
     return build_message("OBJECT_OWNERSHIP", payload)
 
 
-def make_object_claim_ack(key, owner):
-    return build_message("OBJECT_CLAIM_ACK", {"key": key, "owner": owner})
+def make_object_claim_ack(key, owner, co_owners=None):
+    payload = {"key": key, "owner": owner}
+    if co_owners:
+        payload["co_owners"] = [int(pid) for pid in co_owners]
+    return build_message("OBJECT_CLAIM_ACK", payload)
 
 
 def make_interaction_request(object_key, interaction, args=None, affordance=None, affordance_id=None, target=None, zone_id=None):

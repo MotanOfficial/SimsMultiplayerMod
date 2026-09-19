@@ -320,11 +320,17 @@ class MPServer:
                         room_id,
                         zone_id,
                     )
+                    obj = self.session.get_world_object(room_id, key, zone_id)
                     await self.broadcast_zone(
                         room_id,
                         zone_id,
                         msg.make_object_ownership(
-                            room_id, key, None, player_id=player_id, zone_id=zone_id
+                            room_id,
+                            key,
+                            None if obj is None else obj.owner,
+                            player_id=player_id,
+                            zone_id=zone_id,
+                            co_owners=sorted(obj.co_owners) if obj is not None else None,
                         ),
                         exclude={player_id},
                     )

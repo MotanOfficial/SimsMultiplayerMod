@@ -240,6 +240,26 @@ def _validate_field_types(msg_type, payload):
         require(payload["seq"] >= 1, "MALFORMED", "'seq' must be >= 1")
         _validate_object_entries(payload["updates"], require_rev=False, label="updates")
 
+    if msg_type == "OBJECT_OWNERSHIP":
+        co_owners = payload.get("co_owners")
+        if co_owners is not None:
+            require(isinstance(co_owners, list), "MALFORMED", "'co_owners' must be a list of ints")
+            require(
+                all(isinstance(pid, int) and not isinstance(pid, bool) for pid in co_owners),
+                "MALFORMED",
+                "'co_owners' entries must be int player_ids",
+            )
+
+    if msg_type == "OBJECT_CLAIM_ACK":
+        co_owners = payload.get("co_owners")
+        if co_owners is not None:
+            require(isinstance(co_owners, list), "MALFORMED", "'co_owners' must be a list of ints")
+            require(
+                all(isinstance(pid, int) and not isinstance(pid, bool) for pid in co_owners),
+                "MALFORMED",
+                "'co_owners' entries must be int player_ids",
+            )
+
     if msg_type == "INTERACTION_STATE":
         interactions = payload["interactions"]
         require(isinstance(interactions, list), "MALFORMED", "'interactions' must be a list")
@@ -376,6 +396,14 @@ def _validate_object_entries(entries, require_rev=False, require_owner=False, la
                 "MALFORMED",
                 "entry 'owner' must be an int player_id or null",
             )
+            co_owners = entry.get("co_owners")
+            if co_owners is not None:
+                require(
+                    isinstance(co_owners, list)
+                    and all(isinstance(pid, int) and not isinstance(pid, bool) for pid in co_owners),
+                    "MALFORMED",
+                    "entry 'co_owners' must be a list of int player_ids",
+                )
         fields = entry.get("fields")
         require(isinstance(fields, dict), "MALFORMED", "entry 'fields' must be an object")
         require(len(fields) <= MAX_OBJECT_FIELDS, "MALFORMED", "too many fields on an object")
