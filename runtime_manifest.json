@@ -1,5 +1,5 @@
 {
- "version": "2026-09-20-9cf3ca8",
+ "version": "2026-09-20-33e2b5a",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -47,7 +47,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/notifications.py",
-   "sha256": "453b2541d16bd1f1e82a46c6d966b4f985d31ee69739603585222aab37338a17"
+   "sha256": "b8bd3d396e6c5b9e881b8beb11601040500023e4f73513bb2362aef19141119f"
   },
   {
    "path": "client_mod/scripts/simmp_client/presence.py",
@@ -71,11 +71,11 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/state/session.py",
-   "sha256": "22d0bd5e6bdcf2ca01b6a185f4a46f84ffc13d867f36ffa50b2fcb95e39685dd"
+   "sha256": "87af7a2c19ecff9fefda5f601b488ff9fdd47164c6af03fe351ea9b8fd8c73ec"
   },
   {
    "path": "client_mod/scripts/simmp_client/state/world.py",
-   "sha256": "9b49da0523ac4b15114861ccbc569513538c5db537b378bc756f46458723191e"
+   "sha256": "8aac425b7cd9397caa372dbfb16f6ece82833f93f8af7997521d8a61572396e1"
   },
   {
    "path": "client_mod/scripts/simmp_client/ui.py",
@@ -91,7 +91,7 @@
   },
   {
    "path": "protocol/simmp/constants.py",
-   "sha256": "d11f5e2e0d0f5260dca1919d39d7b87193d4f59bbff153d3466d2c26cbfe473e"
+   "sha256": "f84255330df218a5f6f95a22c85ca42125ce3fe6fcb17bd6875d864a71fb166c"
   },
   {
    "path": "protocol/simmp/framing.py",
@@ -99,11 +99,11 @@
   },
   {
    "path": "protocol/simmp/messages.py",
-   "sha256": "a174649c6825f436591640e7c9940af9579230a1f8c2bab5c90d3a9af6f86b3f"
+   "sha256": "dbf599ec6f6e3e8a5e3fc84677da35d424fe8ac2fee528fe7bde245ff44687d1"
   },
   {
    "path": "protocol/simmp/validation.py",
-   "sha256": "fc4f7fbb28cdbd755aeb4a69d122bd422eff24787023803aa00215e919cd4990"
+   "sha256": "321fbd92609e9e9f011b6094c82ef6f24d538f629db41407d11e645a99a462bc"
   },
   {
    "path": "server/__init__.py",
@@ -127,7 +127,7 @@
   },
   {
    "path": "server/networking/server.py",
-   "sha256": "afaadc865295d09d08362da9c0d89fad65cbc91eb2ee0904e1505c4b7ef1b967"
+   "sha256": "bac48a2ac5d5f118788b6eccabc93fbfe85265c179a8003ec9070ce897ec79fb"
   },
   {
    "path": "server/protocol/__init__.py",
@@ -135,7 +135,7 @@
   },
   {
    "path": "server/protocol/handlers.py",
-   "sha256": "2c3d47423b39cf07e4e4d7d5072e52e3e4d7b33749a22ee00993d4a7968c2b25"
+   "sha256": "4a9f51ac9e0814d2d3864e8616f126650730960a59feed21f52fd80f9596c1f5"
   },
   {
    "path": "server/rooms/__init__.py",
@@ -151,7 +151,7 @@
   },
   {
    "path": "server/state/session.py",
-   "sha256": "5c9e1f04cf8ea26cab956ef9a5c0d7a5ea69336cd9e51adf3ad4f3077b24db86"
+   "sha256": "8724086b930be4a4ca5a28b75d65a0ab7b6c1384cf5eeb89634d3f12c69ffa89"
   },
   {
    "path": "server/travel/__init__.py",
