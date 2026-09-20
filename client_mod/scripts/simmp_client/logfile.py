@@ -8,6 +8,7 @@ game-agnostic; it never raises, so logging can never break gameplay.
 """
 
 import os
+import time
 
 MAX_BYTES = 1 << 20  # 1 MiB
 
@@ -30,7 +31,12 @@ class FileLog(object):
                     self._size = os.path.getsize(self.path)
                 except OSError:
                     self._size = 0
-            text = (str(line).rstrip("\n") + "\n").encode("utf-8", "replace")
+            text_line = str(line).rstrip("\n")
+            # Field logs are read after the fact (often copied off the machine),
+            # so every file line carries a wall-clock timestamp. The console
+            # output stays unstamped; only the file gets the prefix.
+            stamped = "%s %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), text_line)
+            text = (stamped + "\n").encode("utf-8", "replace")
             if self._size + len(text) > self.max_bytes:
                 self._truncate()
             directory = os.path.dirname(self.path)

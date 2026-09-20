@@ -49,6 +49,16 @@ class MultiplayerClient:
         self._dropped_held = {}
         self._claimed_in_flight = set()
         self._claim_denied_until = {}
+        # Field-debugging tallies: how many claim attempts the server denied,
+        # and when the last replicated world update arrived. A peer that owns
+        # the whole world but never replicates otherwise looks like a healthy
+        # idle session in client.log, so the denial total is summarized as a
+        # periodic SYNC line (`_maybe_log_sync_health`).
+        self._denied_claims = 0
+        self._denied_summary_sent = 0
+        self._denied_summary_interval = 60.0
+        self._last_denied_summary_at = 0.0
+        self._last_world_delta_at = None
         self.engine = None
         self.session = LocalSession()
         self.session.presence_ttl = self.presence_ttl
@@ -191,6 +201,8 @@ class MultiplayerClient:
         self._dropped_held = {}
         self._claimed_in_flight = set()
         self._claim_denied_until = {}
+        self._denied_claims = 0
+        self._denied_summary_sent = 0
         self._reconnect_attempt = 0
         self._next_reconnect_at = 0.0
         self._log("NET", "Disconnected")
@@ -835,6 +847,7 @@ class MultiplayerClient:
             self._notify_remote_world()
         elif message_type == "WORLD_DELTA":
             self.session.apply_world_delta(payload)
+            self._last_world_delta_at = time.time()
             self._log("SYNC", "World delta from=%s seq=%s keys=%s" % (
                 payload.get("player_id"),
                 payload["seq"],
@@ -927,6 +940,7 @@ class MultiplayerClient:
                     # pinging the room every tick; the ownership broadcast
                     # clears the entry so a released key can be re-claimed.
                     self._claim_denied_until[ref] = float("inf")
+                    self._denied_claims += 1
                 elif code in ("INTERACTION_BUSY", "INTERACTION_COOLDOWN"):
                     self._denied_until[ref] = time.time() + self.deny_backoff
         else:
@@ -1036,6 +1050,7 @@ class MultiplayerClient:
             self._maybe_send_interactions()
             self._maybe_flush_pending_removals()
             self._maybe_report_travel_ready()
+            self._maybe_log_sync_health()
             self._maybe_auto_reconnect()
         except Exception as exc:
             # A single failing tick must never silently kill the repeating
@@ -1048,6 +1063,33 @@ class MultiplayerClient:
                 except Exception:
                     pass
         return True
+
+    def _maybe_log_sync_health(self):
+        """One summary line per interval while claim denials keep arriving.
+
+        Ownership contention itself is routine (and each denial is logged once,
+        then permanently backed off), so a peer that owns the entire world but
+        never replicates would otherwise be invisible in the field log: no
+        errors, no deltas, just a frozen mirror. This makes that state explicit
+        by tallying denials and reporting the age of the last received world
+        update.
+        """
+        if self._denied_claims <= self._denied_summary_sent:
+            return
+        now = time.time()
+        if now - self._last_denied_summary_at < self._denied_summary_interval:
+            return
+        self._last_denied_summary_at = now
+        self._denied_summary_sent = self._denied_claims
+        if self._last_world_delta_at is None:
+            received = "no world update ever received"
+        else:
+            received = "last world update %.0fs ago" % max(0.0, now - self._last_world_delta_at)
+        self._log(
+            "SYNC",
+            "world sync health: %d claim(s) denied by other player(s); %s"
+            % (self._denied_claims, received),
+        )
 
     def _maybe_auto_reconnect(self):
         """Reconnect with backoff after a drop while `auto_reconnect` is on.

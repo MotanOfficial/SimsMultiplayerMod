@@ -1228,6 +1228,11 @@ def _object_key(obj, transform):
     def_id = _definition_id(obj)
     if def_id is None or transform is None:
         return None
+    if not 0 < def_id <= 0xFFFFFFFF:
+        # Some system/marker objects report pointer-like or negative
+        # definition ids; those are not stable catalog entries a peer can
+        # match, so they are never replicated.
+        return None
     pos = _vec3(getattr(transform, "translation", None))
     if pos is None:
         return None

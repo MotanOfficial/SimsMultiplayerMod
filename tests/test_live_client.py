@@ -333,3 +333,79 @@ class WorldMirrorRemovalTests(unittest.TestCase):
         mirror.apply_full("lobby", 5, [{"key": "obj:9@1_2_3", "owner": 1000, "fields": {}}])
         mirror.apply_removal("obj:9@1_2_3", 6)
         self.assertEqual(mirror.count(), 1)
+
+
+class SyncHealthTests(unittest.TestCase):
+    """Field-debugging visibility for silent-peer lockouts.
+
+    Regression coverage for the "world held by a peer that never replicates"
+    incident: hundreds of denials and zero incoming world updates used to
+    look like a healthy idle session in client.log.
+    """
+
+    def _client(self):
+        client = MultiplayerClient(client_name="Alice")
+        client.engine = FakeEngine()
+        lines = []
+        client._notify = lines.append
+        return client, lines
+
+    @staticmethod
+    def _health(lines):
+        return [line for line in lines if "world sync health" in line]
+
+    def _deny(self, client, key):
+        client._handle_message(
+            msg.make_error("OBJECT_LOCKED", "object %r is locked by player 1002" % key, ref=key)
+        )
+
+    def test_denials_are_tallied_and_summarized(self):
+        client, lines = self._client()
+        self._deny(client, "sofa")
+        self.assertEqual(client._denied_claims, 1)
+        client._maybe_log_sync_health()
+        health = self._health(lines)
+        self.assertEqual(len(health), 1)
+        self.assertIn("1 claim(s) denied", health[0])
+        self.assertIn("no world update ever received", health[0])
+
+    def test_summary_does_not_repeat_within_the_interval(self):
+        client, lines = self._client()
+        self._deny(client, "sofa")
+        client._maybe_log_sync_health()
+        client._maybe_log_sync_health()
+        self.assertEqual(len(self._health(lines)), 1, "the health line is throttled")
+
+    def test_summary_reports_age_of_last_world_update(self):
+        client, lines = self._client()
+        client._handle_message(
+            msg.make_world_delta("lobby", 1, [{"key": "obj:9@1_2_3", "fields": {"x": 1.0}}])
+        )
+        self.assertIsNotNone(client._last_world_delta_at)
+        self._deny(client, "sofa")
+        client._maybe_log_sync_health()
+        health = self._health(lines)
+        self.assertEqual(len(health), 1)
+        self.assertIn("last world update 0s ago", health[0])
+
+    def test_healthy_session_never_logs_health_lines(self):
+        client, lines = self._client()
+        client._handle_message(
+            msg.make_world_delta("lobby", 1, [{"key": "obj:9@1_2_3", "fields": {"x": 1.0}}])
+        )
+        client._maybe_log_sync_health()
+        self.assertEqual(self._health(lines), [], "no denials -> no health line")
+
+    def test_disconnect_resets_the_denial_tally(self):
+        client, lines = self._client()
+        self._deny(client, "sofa")
+        client._denied_summary_sent = client._denied_claims
+        client.engine = None  # disconnect() stops the engine; the fake has none
+        client.disconnect()
+        self.assertEqual(client._denied_claims, 0)
+        self.assertEqual(client._denied_summary_sent, 0)
+        del lines[:]
+        self._deny(client, "sofa")
+        client._maybe_log_sync_health()
+        self.assertEqual(len(self._health(lines)), 1, "a fresh session summarizes from zero")
+

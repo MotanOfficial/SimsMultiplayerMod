@@ -1,4 +1,5 @@
 import os
+import re
 import tempfile
 import unittest
 
@@ -21,7 +22,11 @@ class FileLogTests(unittest.TestCase):
         log = FileLog(self._path)
         log.write("[MP][NET] one")
         log.write("[MP][NET] two")
-        self.assertEqual(self._read(), "[MP][NET] one\n[MP][NET] two\n")
+        lines = self._read().splitlines()
+        self.assertEqual(len(lines), 2)
+        for line, suffix in zip(lines, ("[MP][NET] one", "[MP][NET] two")):
+            # Every file line is prefixed with a wall-clock timestamp.
+            self.assertRegex(line, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} " + re.escape(suffix) + "$")
 
     def test_creates_parent_directory(self):
         nested = os.path.join(self._tmp.name, "a", "b", "client.log")
