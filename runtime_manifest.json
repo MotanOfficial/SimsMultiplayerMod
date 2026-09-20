@@ -1,5 +1,5 @@
 {
- "version": "2026-09-20-bf9a2d7",
+ "version": "2026-09-20-162f81e",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -23,7 +23,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/connectivity.py",
-   "sha256": "fbb1eb49cb174fee1c1ba58aa7a744b7528f1801e6761b41808b4766e2b800f6"
+   "sha256": "ef5b1d078554e7eab10e7e94988858b996daae9433e13555f8de0301512d3a43"
   },
   {
    "path": "client_mod/scripts/simmp_client/hooks/__init__.py",
@@ -31,11 +31,11 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/hooks/game_hooks.py",
-   "sha256": "fcea50685c66467b915b5c8f04a8a684f616a22c939103329d8fd5c69dc6bcb2"
+   "sha256": "9d4f1eb7b88e00b45f8b1f6cfa8572a177c141833d8c625460fae37950421226"
   },
   {
    "path": "client_mod/scripts/simmp_client/logfile.py",
-   "sha256": "774c3880a7bf557ac95f019e5e31198d200f43d801e4ad48e8af05f9a019ef3d"
+   "sha256": "1fe566b4171198bfba4bad38c995c1409c7755d8b690c05e3dd86deb8b8d6605"
   },
   {
    "path": "client_mod/scripts/simmp_client/networking/__init__.py",
