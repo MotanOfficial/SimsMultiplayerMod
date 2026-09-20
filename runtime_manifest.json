@@ -1,5 +1,5 @@
 {
- "version": "2026-09-19-2f86d30",
+ "version": "2026-09-20-9cf3ca8",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -23,7 +23,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/connectivity.py",
-   "sha256": "8c106925b4f04e60617ca09da3913949f02489ebb94b6ce759a9eef6079f5ad5"
+   "sha256": "9c6d6c1a9161566452e8c6c6fa1490fb850ba79aea3cdc4a31d24e8e2544b789"
   },
   {
    "path": "client_mod/scripts/simmp_client/hooks/__init__.py",
@@ -31,7 +31,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/hooks/game_hooks.py",
-   "sha256": "34005f345835efd759294404a1876816603994774f86a6765843022d6d9e5364"
+   "sha256": "fcea50685c66467b915b5c8f04a8a684f616a22c939103329d8fd5c69dc6bcb2"
   },
   {
    "path": "client_mod/scripts/simmp_client/logfile.py",
@@ -71,11 +71,11 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/state/session.py",
-   "sha256": "87af7a2c19ecff9fefda5f601b488ff9fdd47164c6af03fe351ea9b8fd8c73ec"
+   "sha256": "22d0bd5e6bdcf2ca01b6a185f4a46f84ffc13d867f36ffa50b2fcb95e39685dd"
   },
   {
    "path": "client_mod/scripts/simmp_client/state/world.py",
-   "sha256": "0f254d51bb104ad49a349f8a67910c58b64890730b8267b56e7e9638fc613b58"
+   "sha256": "9b49da0523ac4b15114861ccbc569513538c5db537b378bc756f46458723191e"
   },
   {
    "path": "client_mod/scripts/simmp_client/ui.py",
@@ -91,7 +91,7 @@
   },
   {
    "path": "protocol/simmp/constants.py",
-   "sha256": "731c4cf4f31ed3c49d4040daf2a89cc1f8693fbb346536f14b1e3ae7161d1eba"
+   "sha256": "d11f5e2e0d0f5260dca1919d39d7b87193d4f59bbff153d3466d2c26cbfe473e"
   },
   {
    "path": "protocol/simmp/framing.py",
@@ -99,11 +99,11 @@
   },
   {
    "path": "protocol/simmp/messages.py",
-   "sha256": "ee863cee9b7ada8e76bdfaaef4797486a1bab9575426474254fb299a0b154f83"
+   "sha256": "a174649c6825f436591640e7c9940af9579230a1f8c2bab5c90d3a9af6f86b3f"
   },
   {
    "path": "protocol/simmp/validation.py",
-   "sha256": "ebe2952ad5666101e5a53ee3126b2d4a1fc41132b3a098f9a3026f540f3cf581"
+   "sha256": "fc4f7fbb28cdbd755aeb4a69d122bd422eff24787023803aa00215e919cd4990"
   },
   {
    "path": "server/__init__.py",
@@ -127,7 +127,7 @@
   },
   {
    "path": "server/networking/server.py",
-   "sha256": "6302919c82eb09078249bd00498735fb1ad32317cf594a14cba15e89c5340daa"
+   "sha256": "afaadc865295d09d08362da9c0d89fad65cbc91eb2ee0904e1505c4b7ef1b967"
   },
   {
    "path": "server/protocol/__init__.py",
@@ -135,7 +135,7 @@
   },
   {
    "path": "server/protocol/handlers.py",
-   "sha256": "e1ad21d22113361057b0f31084cc9afafec0aad346fd958401a882409e94bfc1"
+   "sha256": "2c3d47423b39cf07e4e4d7d5072e52e3e4d7b33749a22ee00993d4a7968c2b25"
   },
   {
    "path": "server/rooms/__init__.py",
@@ -151,7 +151,7 @@
   },
   {
    "path": "server/state/session.py",
-   "sha256": "86e63b19c918b22cf534ec2f25d34852ce1b5c1d1b7ca8b5668db321f5585597"
+   "sha256": "5c9e1f04cf8ea26cab956ef9a5c0d7a5ea69336cd9e51adf3ad4f3077b24db86"
   },
   {
    "path": "server/travel/__init__.py",
