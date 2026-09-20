@@ -1,5 +1,5 @@
 {
- "version": "2026-09-20-162f81e",
+ "version": "2026-09-20-296127e",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -15,11 +15,11 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/commands/cheat_commands.py",
-   "sha256": "0b2c265d973cd347dec97943907583b538dd384c854b9fc35f255b685a8b2a96"
+   "sha256": "d01d33633e670447f495250d9dc551270fec8608606de1bfe10345e3a749b951"
   },
   {
    "path": "client_mod/scripts/simmp_client/config.py",
-   "sha256": "aa40407a48c5afed14f0b42e05136113b2cbedc7723bddbbab0afef99ffaff56"
+   "sha256": "ac9bab193304f204a19d2ed7e576132d84af5f3afdc91b678eea5961aaa419cb"
   },
   {
    "path": "client_mod/scripts/simmp_client/connectivity.py",
