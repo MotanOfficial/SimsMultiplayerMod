@@ -13,10 +13,23 @@ from PySide6.QtCore import QTimer, Slot
 
 from launcher_common import CODE_ROOT, RUNTIME_DIR, updater
 
-try:
-    from tools import diagnostics
-except ImportError:  # pragma: no cover - dev fallback when the run dir differs
-    import diagnostics  # type: ignore
+import importlib as _importlib
+
+# Lazy import: 'tools.diagnostics' lives in the synced runtime tree, so it
+# must be resolved at call time (after mount_runtime), not at module import.
+_diagnostics = None
+
+
+def _diag():
+    global _diagnostics
+    if _diagnostics is None:
+        try:
+            _diagnostics = _importlib.import_module("tools.diagnostics")
+        except ImportError:  # pragma: no cover - dev fallback when run dir differs
+            import diagnostics as _fallback  # type: ignore
+
+            _diagnostics = _fallback
+    return _diagnostics
 
 LOG_HISTORY_LIMIT = 400
 
@@ -28,8 +41,8 @@ class DiagnosticsMixin(object):
         self._diag_receiver = None
         self._diag_status = ""
         self._diag_last_export = ""
-        self._diag_dir = os.path.join(RUNTIME_DIR, diagnostics.EXPORT_DIRNAME)
-        self._diag_received_dir = os.path.join(RUNTIME_DIR, diagnostics.RECEIVED_DIRNAME)
+        self._diag_dir = os.path.join(RUNTIME_DIR, _diag().EXPORT_DIRNAME)
+        self._diag_received_dir = os.path.join(RUNTIME_DIR, _diag().RECEIVED_DIRNAME)
         try:
             self._diag_runtime_version = updater.installed_version(CODE_ROOT) or "(none)"
         except Exception:  # noqa: BLE001
@@ -62,7 +75,7 @@ class DiagnosticsMixin(object):
         host = (getattr(self, "_join_ip", "") or "").strip()
         if not host:
             return ""
-        return "%s:%d" % (host, diagnostics.receiver_port(getattr(self, "_join_port", 8765)))
+        return "%s:%d" % (host, _diag().receiver_port(getattr(self, "_join_port", 8765)))
 
     @Slot()
     def refreshDiagStatus(self):
@@ -110,7 +123,7 @@ class DiagnosticsMixin(object):
 
     def _diag_export_bundle(self, directory):
         """Collect + write the zip (called on a worker thread)."""
-        return diagnostics.export_bundle(
+        return _diag().export_bundle(
             directory,
             info=self._diag_info(),
             launcher_log=list(self._diag_history),
@@ -124,7 +137,7 @@ class DiagnosticsMixin(object):
 
         def work():
             try:
-                target = self._diag_export_bundle(diagnostics.desktop_directory())
+                target = self._diag_export_bundle(_diag().desktop_directory())
                 self._diag_last_export = target
                 self._note("Diagnostics exported: %s" % target)
                 self._note("Send that file to the other player (or use 'Send to host').")
@@ -142,7 +155,7 @@ class DiagnosticsMixin(object):
             self._note("Enter the host's IP on the Join side first.", kind="error")
             return
         host = (self._join_ip or "").strip()
-        port = diagnostics.receiver_port(self._join_port or 8765)
+        port = _diag().receiver_port(self._join_port or 8765)
         self._note("Packaging diagnostics and sending to %s..." % target)
 
         def work():
@@ -153,7 +166,7 @@ class DiagnosticsMixin(object):
                 self._note("Diagnostics export failed: %s" % exc, kind="error")
                 self.refreshDiagStatus()
                 return
-            ok, detail = diagnostics.send_bundle(
+            ok, detail = _diag().send_bundle(
                 bundle,
                 host,
                 port,
@@ -180,7 +193,7 @@ class DiagnosticsMixin(object):
             os.makedirs(self._diag_dir, exist_ok=True)
         except OSError:
             pass
-        if not diagnostics.open_in_explorer(self._diag_dir):
+        if not _diag().open_in_explorer(self._diag_dir):
             self._note("Diagnostics folder: %s" % self._diag_dir)
         else:
             self._note("Opened %s" % self._diag_dir)
@@ -189,8 +202,8 @@ class DiagnosticsMixin(object):
     def _start_diag_receiver(self, lobby_port):
         """Listen for joiners' bundles while the lobby is open (host side)."""
         self._stop_diag_receiver()
-        port = diagnostics.receiver_port(lobby_port)
-        receiver = diagnostics.DiagnosticsReceiver(
+        port = _diag().receiver_port(lobby_port)
+        receiver = _diag().DiagnosticsReceiver(
             port,
             self._diag_received_dir,
             on_received=self._on_diag_received,
@@ -213,7 +226,7 @@ class DiagnosticsMixin(object):
     def _on_diag_received(self, path, meta):
         player = (meta or {}).get("name", "player")
         self._note("Received %s's diagnostics: %s" % (player, path))
-        if diagnostics.open_in_explorer(os.path.dirname(path)):
+        if _diag().open_in_explorer(os.path.dirname(path)):
             self._note("Opened the folder with the received bundle.")
 
 

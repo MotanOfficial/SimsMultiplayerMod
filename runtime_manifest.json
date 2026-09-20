@@ -1,5 +1,5 @@
 {
- "version": "2026-09-20-cc7b7b5",
+ "version": "2026-09-20-601c690",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -163,7 +163,7 @@
   },
   {
    "path": "tools/diagnostics.py",
-   "sha256": "b0fa2f4b29c47654c07ad936d019d51e83a9287afc6595f211aa5d526384f77f"
+   "sha256": "bcc3f81721285ad4f5cf3e6327cb9e980f2a6d45ec2621e275db046499c19933"
   },
   {
    "path": "tools/game_paths.py",
@@ -175,7 +175,7 @@
   },
   {
    "path": "tools/launcher_diag.py",
-   "sha256": "e551a61f60e595176818a0a9e9932e244db76f8f93cc747869f2ee3ed29dab04"
+   "sha256": "5343f964ccdce385d24233b1f3ab0d187b3274d54f2fee44f62e9a59fff42ea5"
   },
   {
    "path": "tools/launcher_lobby.py",

@@ -19,14 +19,11 @@ Pure stdlib so it is unit-testable without Qt or the game.
 """
 
 import hashlib
-import http.server
 import os
 import shutil
 import socket
 import threading
 import time
-import urllib.error
-import urllib.request
 import zipfile
 
 #: Cap per collected file (extra content is dropped, a note is recorded) so a
@@ -259,24 +256,109 @@ def _parse_query(path):
     query = {}
     if "?" not in path:
         return query
-    from urllib.parse import parse_qs
-
     try:
+        from urllib.parse import parse_qs  # lazy: urllib may be trimmed in the bundle
+
         return parse_qs(path.split("?", 1)[1])
     except Exception:  # noqa: BLE001
+        # Minimal fallback: split on & and = without percent-decoding.
+        try:
+            for chunk in path.split("?", 1)[1].split("&"):
+                if "=" in chunk:
+                    key, _, value = chunk.partition("=")
+                    query.setdefault(key, []).append(value)
+        except Exception:  # noqa: BLE001
+            pass
         return query
 
 
-class _Server(http.server.ThreadingHTTPServer):
-    """Threaded HTTP server that refuses to share a busy port.
+def _reason(status):
+    return {
+        200: "OK",
+        404: "Not Found",
+        413: "Payload Too Large",
+    }.get(status, "OK")
 
-    ``SO_REUSEADDR`` would let a second receiver silently hijack an in-use
-    port (and split incoming bundles between them), so the launcher gets a
-    loud "could not bind" instead.
-    """
 
-    allow_reuse_address = False
-    daemon_threads = True
+def _send_reply(conn, status, payload):
+    """Write one minimal HTTP/1.1 text response; never raises."""
+    try:
+        body = payload.encode("utf-8") if isinstance(payload, str) else payload
+        head = (
+            "HTTP/1.1 %d %s\r\n"
+            "Content-Type: text/plain; charset=utf-8\r\n"
+            "Content-Length: %d\r\n"
+            "Connection: close\r\n\r\n" % (status, _reason(status), len(body))
+        )
+        conn.sendall(head.encode("utf-8") + body)
+    except Exception:  # noqa: BLE001 - client vanished mid-reply
+        pass
+
+
+def _recv_until(conn, marker, limit=65536):
+    """Read until ``marker`` appears; b"" on close/overflow/timeout."""
+    data = b""
+    try:
+        while marker not in data:
+            chunk = conn.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+            if len(data) > limit:
+                break
+    except (OSError, socket.timeout):
+        pass
+    return data
+
+
+def _recv_exact(conn, count):
+    """Read exactly ``count`` bytes (b"" shortfall allowed); never raises."""
+    data = b""
+    try:
+        while len(data) < count:
+            chunk = conn.recv(min(65536, count - len(data)))
+            if not chunk:
+                break
+            data += chunk
+    except (OSError, socket.timeout):
+        pass
+    return data
+
+
+def _read_reply(sock_file):
+    """Parse one HTTP/1.x response into ``(status, body)``; never raises."""
+    try:
+        status_line = sock_file.readline(8192).decode("latin-1")
+    except (OSError, socket.timeout, ValueError):
+        return (0, "")
+    parts = status_line.split()
+    try:
+        status = int(parts[1]) if len(parts) >= 2 else 0
+    except (TypeError, ValueError):
+        status = 0
+    length = 0
+    try:
+        while True:
+            line = sock_file.readline(8192).decode("latin-1")
+            if not line or line in ("\r\n", "\n"):
+                break
+            if line.lower().startswith("content-length:"):
+                try:
+                    length = max(0, int(line.split(":", 1)[1].strip() or 0))
+                except (TypeError, ValueError):
+                    length = 0
+    except (OSError, socket.timeout, ValueError):
+        return (status, "")
+    body = b""
+    try:
+        while len(body) < length:
+            chunk = sock_file.read(min(65536, length - len(body)))
+            if not chunk:
+                break
+            body += chunk
+    except (OSError, socket.timeout, ValueError):
+        pass
+    return (status, body.decode("utf-8", "replace"))
 
 
 class DiagnosticsReceiver(object):
@@ -297,22 +379,39 @@ class DiagnosticsReceiver(object):
         self.on_received = on_received
         self.log = log or (lambda *_args, **_kwargs: None)
         self.actual_port = self.port
-        self._server = None
+        self._socket = None
+        self._stop = threading.Event()
         self._thread = None
 
     # ------------------------------------------------------------ lifecycle
     def start(self):
         """Start serving. Returns True when bound, False when the port is busy."""
-        if self._server is not None:
+        if self._socket is not None:
             return True
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # NOTE: deliberately no SO_REUSEADDR - a second receiver must fail
+        # loudly instead of silently hijacking an in-use port.
         try:
-            server = _Server((self.host, self.port), _make_handler(self))
+            sock.bind((self.host, self.port))
         except OSError as exc:
             self.log("Diagnostics receiver could not bind port %s: %s" % (self.port, exc))
+            try:
+                sock.close()
+            except OSError:
+                pass
             return False
-        server.daemon_threads = True
-        self._server = server
-        self.actual_port = server.server_address[1]
+        try:
+            sock.listen(8)
+        except OSError as exc:
+            self.log("Diagnostics receiver listen failed on port %s: %s" % (self.port, exc))
+            try:
+                sock.close()
+            except OSError:
+                pass
+            return False
+        self._socket = sock
+        self.actual_port = sock.getsockname()[1]
+        self._stop.clear()
         self._thread = threading.Thread(
             target=self._serve, name="simmp-diagnostics", daemon=True
         )
@@ -322,20 +421,73 @@ class DiagnosticsReceiver(object):
 
     def _serve(self):
         try:
-            self._server.serve_forever(poll_interval=0.2)
+            self._socket.settimeout(0.5)
+            while not self._stop.is_set():
+                try:
+                    conn, _addr = self._socket.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                worker = threading.Thread(
+                    target=self._handle_one, args=(conn,), daemon=True
+                )
+                worker.start()
         except Exception:  # noqa: BLE001 - shutdown races are not interesting
             pass
 
+    def _handle_one(self, conn):
+        try:
+            conn.settimeout(25.0)
+            raw = _recv_until(conn, b"\r\n\r\n")
+            if b"\r\n\r\n" not in raw:
+                _send_reply(conn, 404, "not found\n")
+                return
+            head, rest = raw.split(b"\r\n\r\n", 1)
+            lines = head.decode("latin-1").split("\r\n")
+            if not lines:
+                _send_reply(conn, 404, "not found\n")
+                return
+            parts = lines[0].split()
+            if len(parts) < 2:
+                _send_reply(conn, 404, "not found\n")
+                return
+            method, path = parts[0].upper(), parts[1]
+            length = 0
+            for line in lines[1:]:
+                if line.lower().startswith("content-length:"):
+                    try:
+                        length = int(line.split(":", 1)[1].strip() or 0)
+                    except (TypeError, ValueError):
+                        length = 0
+                    break
+            if method == "GET":
+                if path.startswith(PING_PATH):
+                    _send_reply(conn, 200, "simmp-diagnostics\n")
+                else:
+                    _send_reply(conn, 404, "not found\n")
+                return
+            if method != "POST" or not path.startswith(RECEIVER_PATH):
+                _send_reply(conn, 404, "not found\n")
+                return
+            if length > self.max_bytes:
+                _send_reply(conn, 413, "bundle larger than %d bytes\n" % self.max_bytes)
+                return
+            body = rest[:length] + _recv_exact(conn, max(0, length - len(rest)))
+            _send_reply(conn, *self.handle_upload(body, _parse_query(path)))
+        finally:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
     def stop(self):
-        server, self._server = self._server, None
-        if server is None:
+        self._stop.set()
+        sock, self._socket = self._socket, None
+        if sock is None:
             return
         try:
-            server.shutdown()
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            server.server_close()
+            sock.close()
         except Exception:  # noqa: BLE001
             pass
         self._thread = None
@@ -372,47 +524,6 @@ class DiagnosticsReceiver(object):
         return (200, "ok %s\n" % os.path.basename(target))
 
 
-def _make_handler(receiver):
-    class _Handler(http.server.BaseHTTPRequestHandler):
-        server_version = "SimMPDiagnostics/1.0"
-
-        def log_message(self, fmt, *args):  # keep the launcher console clean
-            return
-
-        def _reply(self, status, payload):
-            try:
-                body = payload.encode("utf-8") if isinstance(payload, str) else payload
-                self.send_response(status)
-                self.send_header("Content-Type", "text/plain; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-            except Exception:  # noqa: BLE001 - client vanished mid-reply
-                pass
-
-        def do_GET(self):  # noqa: N802 - http.server API
-            if self.path.startswith(PING_PATH):
-                self._reply(200, "simmp-diagnostics\n")
-                return
-            self._reply(404, "not found\n")
-
-        def do_POST(self):  # noqa: N802 - http.server API
-            if not self.path.startswith(RECEIVER_PATH):
-                self._reply(404, "not found\n")
-                return
-            try:
-                length = int(self.headers.get("Content-Length") or 0)
-            except (TypeError, ValueError):
-                length = 0
-            if length > receiver.max_bytes:
-                self._reply(413, "bundle larger than %d bytes\n" % receiver.max_bytes)
-                return
-            body = self.rfile.read(length) if length > 0 else b""
-            self._reply(*receiver.handle_upload(body, _parse_query(self.path)))
-
-    return _Handler
-
-
 def send_bundle(zip_path, host, port, name="player", role="join", timeout=25.0):
     """POST ``zip_path`` to a host's diagnostics receiver.
 
@@ -438,17 +549,47 @@ def send_bundle(zip_path, host, port, name="player", role="join", timeout=25.0):
         _safe_name(name),
         _safe_name(role, "join"),
     )
-    request = urllib.request.Request(url, data=body, method="POST")
-    request.add_header("Content-Type", "application/zip")
+    return _post_raw(url, body, timeout, host, port)
+
+
+def _post_raw(url, body, timeout, host, port):
+    """POST bytes via raw sockets; ``(ok, detail)`` - never raises."""
+    path = url.split("://", 1)[-1]
+    slash = path.find("/")
+    path = path[slash:] if slash >= 0 else "/"
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            reply = response.read().decode("utf-8", "replace").strip()
+        sock = socket.create_connection((host, port), timeout=timeout)
+    except (OSError, socket.timeout) as exc:
+        return (False, "could not reach %s:%d (%s)" % (host, port, exc))
+    try:
+        sock.settimeout(timeout)
+        request = (
+            "POST %s HTTP/1.1\r\n"
+            "Host: %s:%d\r\n"
+            "Content-Type: application/zip\r\n"
+            "Content-Length: %d\r\n"
+            "Connection: close\r\n\r\n" % (path, host, port, len(body))
+        )
+        sock.sendall(request.encode("utf-8") + body)
+        status, reply = _read_reply(sock.makefile("rb"))
+    except (OSError, socket.timeout, ValueError) as exc:
+        try:
+            sock.close()
+        except OSError:
+            pass
+        return (False, "could not reach %s:%d (%s)" % (host, port, exc))
+    try:
+        sock.close()
+    except OSError:
+        pass
+    reply = (reply or "").strip()
+    if status == 200:
         return (True, reply or "sent")
-    except urllib.error.HTTPError as exc:
-        return (False, "host replied %s" % exc.code)
-    except (urllib.error.URLError, socket.timeout, OSError) as exc:
-        reason = getattr(exc, "reason", exc)
-        return (False, "could not reach %s:%d (%s)" % (host, port, reason))
+    if status == 413:
+        return (False, "host replied 413")
+    if status:
+        return (False, "host replied %s" % status)
+    return (False, "could not reach %s:%d (no reply)" % (host, port))
 
 
 def ping_receiver(host, port, timeout=3.0):
@@ -457,10 +598,27 @@ def ping_receiver(host, port, timeout=3.0):
     if not host:
         return False
     try:
-        url = "http://%s:%d%s" % (host, int(port), PING_PATH)
-        with urllib.request.urlopen(url, timeout=timeout) as response:
-            return "simmp-diagnostics" in response.read().decode("utf-8", "replace")
-    except Exception:  # noqa: BLE001
+        port = int(port)
+    except (TypeError, ValueError):
         return False
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+    except (OSError, socket.timeout):
+        return False
+    try:
+        sock.settimeout(timeout)
+        sock.sendall(
+            ("GET %s HTTP/1.1\r\nHost: %s:%d\r\nConnection: close\r\n\r\n"
+             % (PING_PATH, host, port)).encode("utf-8")
+        )
+        _status, reply = _read_reply(sock.makefile("rb"))
+        return "simmp-diagnostics" in reply
+    except (OSError, socket.timeout, ValueError):
+        return False
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
 
 
