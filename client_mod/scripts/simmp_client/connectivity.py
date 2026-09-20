@@ -907,24 +907,28 @@ class MultiplayerClient:
             self.session.apply_pong(payload)
             self._log("NET", "Pong server_time=%s" % payload["server_time"])
         elif message_type == "ERROR":
-            self._log("ERROR", "Server error %s: %s" % (payload["code"], payload["message"]))
+            code = payload["code"]
+            message = payload.get("message", "")
+            # Ownership/interaction contention is routine one-driver demuxer
+            # feedback, not a player-facing failure: log it like any other
+            # sync line (and never toast it) so races stay invisible.
+            if code in ("OBJECT_LOCKED", "INTERACTION_BUSY", "INTERACTION_COOLDOWN", "INTERACTION_NOT_HELD"):
+                self._log("SYNC", "Server %s: %s" % (code, message))
+            else:
+                self._log("ERROR", "Server error %s: %s" % (code, message))
             ref = payload.get("ref")
-            if ref and payload["code"] in ("INTERACTION_BUSY", "INTERACTION_COOLDOWN"):
-                self._denied_until[ref] = time.time() + self.deny_backoff
-            elif ref and payload["code"] == "OBJECT_LOCKED":
-                # Someone else claimed this key first. Stop pinging it for a
-                # while (clear the in-flight guard so a later release is seen)
-                # and back off so losers do not spam the server every tick.
+            if ref:
                 self._claimed_in_flight.discard(ref)
-                if isinstance(ref, str) and ref.startswith("obj:"):
-                    # Shared save: the same lot object exists on every client and
-                    # the winner already mirrors it here, so a lost claim needs
-                    # no retry - it is re-enabled by the owner-null broadcast on
-                    # release. Sims keep the bounded retry so the assigned
-                    # driver can take over a wrongly-owned sim.
+                if code == "OBJECT_LOCKED":
+                    # Ownership is exclusive: only the owner may drive a key,
+                    # and keys only change hands on an explicit owner=null
+                    # broadcast (release / zone change / ghost eviction). A
+                    # lost claim therefore backs off permanently instead of
+                    # pinging the room every tick; the ownership broadcast
+                    # clears the entry so a released key can be re-claimed.
                     self._claim_denied_until[ref] = float("inf")
-                else:
-                    self._claim_denied_until[ref] = time.time() + 30.0
+                elif code in ("INTERACTION_BUSY", "INTERACTION_COOLDOWN"):
+                    self._denied_until[ref] = time.time() + self.deny_backoff
         else:
             self._log("NET", "Unhandled message %s" % message_type)
 

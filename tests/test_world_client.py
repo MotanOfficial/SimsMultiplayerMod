@@ -226,6 +226,23 @@ class WorldClientTests(unittest.TestCase):
                     "Bob must not be (co-)owner of the host's sim",
                 )
 
+                # A lost sim claim backs off permanently: Bob must not ping
+                # the room every world tick (re-enabled only by owner=null).
+                self.assertEqual(
+                    bob._claim_denied_until.get("sim:42"),
+                    float("inf"),
+                    "Bob's denied sim claim must back off permanently",
+                )
+                bob_log[:] = []
+                bob.world_sync = True
+                bob.world_interval = 0.0
+                bob.set_world_sampler(lambda: [{"key": "sim:42", "fields": {}, "rev": 0}])
+                bob._maybe_send_world_update()
+                self.assertFalse(
+                    any("Requested ownership of object 'sim:42'" in line for line in bob_log),
+                    "Bob must not re-claim a host-owned sim",
+                )
+
                 # Bob cannot push deltas on a sim he does not own.
                 bob_log[:] = []
                 self.assertTrue(bob.update_object("sim:42", {"x": 9.0}))
