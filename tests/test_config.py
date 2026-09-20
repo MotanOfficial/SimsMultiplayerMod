@@ -2,8 +2,66 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from simmp_client import config as cfg
+
+
+class ClientIdTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._config = os.path.join(self._tmp.name, "Sims4Multiplayer.json")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _sidecar(self):
+        return os.path.join(self._tmp.name, "Sims4Multiplayer.client_id")
+
+    def test_client_id_is_created_valid_and_stable(self):
+        with open(self._config, "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        first = cfg.load_or_create_client_id(explicit_config_path=self._config)
+        self.assertRegex(first, r"^[0-9a-f]{32}$")
+        self.assertTrue(os.path.isfile(self._sidecar()))
+        second = cfg.load_or_create_client_id(explicit_config_path=self._config)
+        self.assertEqual(first, second, "the id must be reloaded, not regenerated")
+
+    def test_client_id_regenerated_when_stored_value_is_garbage(self):
+        with open(self._config, "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        with open(self._sidecar(), "w", encoding="utf-8") as handle:
+            handle.write("not-an-id")
+        client_id = cfg.load_or_create_client_id(explicit_config_path=self._config)
+        self.assertRegex(client_id, r"^[0-9a-f]{32}$")
+        self.assertNotEqual(client_id, "not-an-id")
+
+    def test_client_id_works_without_a_config_file(self):
+        # No config anywhere: the sidecar falls back to the Mods folder
+        # inferred from USERPROFILE, which the test redirects to the tmp dir.
+        fake_profile = self._tmp.name
+        expected_dir = os.path.join(
+            fake_profile, "Documents", "Electronic Arts", "The Sims 4", "Mods"
+        )
+        with mock.patch.dict(
+            os.environ, {"USERPROFILE": fake_profile, "SIM4_MP_CONFIG": ""}
+        ):
+            client_id = cfg.load_or_create_client_id()
+        self.assertRegex(client_id, r"^[0-9a-f]{32}$")
+        self.assertTrue(os.path.isfile(os.path.join(expected_dir, "Sims4Multiplayer.client_id")))
+
+    def test_client_id_never_raises_on_unwritable_path(self):
+        # A config inside a read-only location must still yield a usable id.
+        config = os.path.join(self._tmp.name, "ro", "Sims4Multiplayer.json")
+        os.makedirs(os.path.dirname(config))
+        with open(config, "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        os.chmod(os.path.dirname(config), 0o500)  # read-only directory
+        try:
+            client_id = cfg.load_or_create_client_id(explicit_config_path=config)
+        finally:
+            os.chmod(os.path.dirname(config), 0o700)
+        self.assertRegex(client_id, r"^[0-9a-f]{32}$")
 
 
 class ConfigTests(unittest.TestCase):

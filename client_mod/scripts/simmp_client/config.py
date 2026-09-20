@@ -15,8 +15,10 @@ If the file is missing, the mod does nothing at startup (you can still
 
 import json
 import os
+import random
 
 CONFIG_FILE_NAME = "Sims4Multiplayer.json"
+CLIENT_ID_FILE_NAME = "Sims4Multiplayer.client_id"
 
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
@@ -174,3 +176,60 @@ def find_config_file(explicit=None):
         if os.path.isfile(path):
             return path
     return None
+
+
+def client_id_file_path(explicit_config_path=None):
+    """Where the persistent client identity lives: next to the config file.
+
+    Launcher-managed installs keep the config (and therefore the identity)
+    across mod reinstalls, which source-only persistence could not.
+    """
+    config_path = find_config_file(explicit_config_path)
+    if config_path:
+        directory = os.path.dirname(config_path)
+    else:
+        profile = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+        directory = os.path.join(
+            profile, "Documents", "Electronic Arts", "The Sims 4", "Mods"
+        )
+    return os.path.join(directory, CLIENT_ID_FILE_NAME)
+
+
+def load_or_create_client_id(explicit_config_path=None):
+    """Stable per-install client identity, persisted across game restarts.
+
+    The server keys its ghost/resume behaviour on `client_id`; a random id
+    per launch turned every game restart into a brand-new player (new
+    player_id, no resume, 60s of ownership reserved for an identity that
+    would never return). The id is a 32-hex-char string stored in a sidecar
+    file next to the config. Never raises: on any I/O failure a fresh id is
+    returned so this session still works (it just will not persist).
+    """
+    path = client_id_file_path(explicit_config_path)
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            stored = handle.read().strip()
+    except OSError:
+        stored = ""
+    if _is_valid_client_id(stored):
+        return stored
+    client_id = "%032x" % random.getrandbits(128)
+    try:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(client_id)
+    except OSError:
+        pass
+    return client_id
+
+
+def _is_valid_client_id(value):
+    if not isinstance(value, str) or len(value) != 32:
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True

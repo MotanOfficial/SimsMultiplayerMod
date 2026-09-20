@@ -83,7 +83,17 @@ def _toast_for(line):
     return _toast_filter.pick(line)
 
 
-_client = MultiplayerClient(notify=_notify)
+def _persistent_client_id():
+    """Stable identity across game restarts (server-side ghost resume)."""
+    try:
+        from simmp_client.config import load_or_create_client_id
+
+        return load_or_create_client_id()
+    except Exception:  # noqa: BLE001 - identity must never break the mod load
+        return None
+
+
+_client = MultiplayerClient(notify=_notify, client_id=_persistent_client_id())
 
 
 def configure_ui(enabled):
