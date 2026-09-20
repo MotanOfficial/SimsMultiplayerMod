@@ -1,5 +1,5 @@
 {
- "version": "2026-09-20-296127e",
+ "version": "2026-09-20-cc7b7b5",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -162,20 +162,32 @@
    "sha256": "b417ce0360393d444549235244d27bb38374a9cbdb1988d2dd9f30b111306489"
   },
   {
+   "path": "tools/diagnostics.py",
+   "sha256": "b0fa2f4b29c47654c07ad936d019d51e83a9287afc6595f211aa5d526384f77f"
+  },
+  {
    "path": "tools/game_paths.py",
    "sha256": "11de265db830c48fd7477b07307d45d653cfc3710bab9ab3f92968e16c05c0b0"
   },
   {
    "path": "tools/launcher_bridge.py",
-   "sha256": "ac3bcd47bf91b5cd5e596003e7de2405162c861040dbbf549f0777627b9446d1"
+   "sha256": "6d5a9e3e36dabab452265f91ba4976a1abd85d04abc1c33acd1390375725a0e4"
+  },
+  {
+   "path": "tools/launcher_diag.py",
+   "sha256": "e551a61f60e595176818a0a9e9932e244db76f8f93cc747869f2ee3ed29dab04"
   },
   {
    "path": "tools/launcher_lobby.py",
-   "sha256": "3689dc7f4bf3b08f2d44bc35e98b81032e105704a58921a63a92e3164c386383"
+   "sha256": "b238ead810e576cdf021a932e3dba5b5705ab8c5abd84af31a985a54908b136c"
+  },
+  {
+   "path": "tools/launcher_setup.py",
+   "sha256": "eb111b807665e29ccb39519736366e38b91e102bcc170c95167a8628efd0f274"
   },
   {
    "path": "tools/launcher_ui/Main.qml",
-   "sha256": "3d62d8ea099f2f7e35a59549e4a2761f723dbf64008214421b9d5103cd90b5f6"
+   "sha256": "5a660b9f6b334066fed1fe29f94d27d06f840679712db5795bf247aedabf2b17"
   },
   {
    "path": "tools/launcher_ui/Theme.qml",
