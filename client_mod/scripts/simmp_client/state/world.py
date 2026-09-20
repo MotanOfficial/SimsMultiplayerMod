@@ -15,12 +15,11 @@ def lerp(a, b, t):
 
 
 class ObjectMirror:
-    __slots__ = ("key", "owner", "co_owners", "fields", "anchor", "receive_time", "anchor_time")
+    __slots__ = ("key", "owner", "fields", "anchor", "receive_time", "anchor_time")
 
-    def __init__(self, key, owner=None, fields=None, co_owners=None):
+    def __init__(self, key, owner=None, fields=None):
         self.key = key
         self.owner = owner
-        self.co_owners = set(co_owners) if co_owners else set()
         self.fields = dict(fields) if fields else {}
         self.anchor = None
         now = time.time()
@@ -28,12 +27,12 @@ class ObjectMirror:
         self.anchor_time = now
 
     def is_owned_by(self, player_id):
-        """True when `player_id` is the primary owner or a shared co-owner."""
-        return self.owner == player_id or player_id in self.co_owners
+        """True when `player_id` drives this key (single authoritative owner)."""
+        return self.owner == player_id
 
     def exclusively_owned_by(self, player_id):
-        """True when `player_id` is the owner and no other player shares it."""
-        return self.owner == player_id and not self.co_owners
+        """True when `player_id` is the sole owner."""
+        return self.owner == player_id
 
     def merge_fields(self, updates, now=None):
         """Apply a field delta, capturing an anchor when a position moves."""
@@ -90,7 +89,6 @@ class WorldMirror:
                 entry["key"],
                 entry.get("owner"),
                 entry.get("fields"),
-                entry.get("co_owners"),
             )
             self.objects[mirror.key] = mirror
 
@@ -109,7 +107,6 @@ class WorldMirror:
                 entry["key"],
                 entry.get("owner"),
                 entry.get("fields"),
-                entry.get("co_owners"),
             )
             self.objects[mirror.key] = mirror
 
@@ -127,7 +124,7 @@ class WorldMirror:
                 self.objects[mirror.key] = mirror
             mirror.merge_fields(update.get("fields"), now)
 
-    def apply_ownership(self, key, owner, co_owners=None, zone_id=None):
+    def apply_ownership(self, key, owner, zone_id=None):
         if zone_id is not None and zone_id != self.zone_id:
             return
         mirror = self.objects.get(key)
@@ -135,10 +132,9 @@ class WorldMirror:
             mirror = ObjectMirror(key)
             self.objects[mirror.key] = mirror
         mirror.owner = owner
-        mirror.co_owners = set(co_owners) if co_owners else set()
 
-    def apply_claim_ack(self, key, owner, co_owners=None):
-        self.apply_ownership(key, owner, co_owners=co_owners)
+    def apply_claim_ack(self, key, owner):
+        self.apply_ownership(key, owner)
 
     def apply_removal(self, key, zone_id=None):
         if zone_id is not None and zone_id != self.zone_id:

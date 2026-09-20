@@ -367,7 +367,6 @@ class Handlers:
             msg.make_object_claim_ack(
                 key,
                 obj.owner if obj is not None else None,
-                co_owners=sorted(obj.co_owners) if obj is not None else None,
             )
         )
         await server.broadcast_zone(
@@ -379,7 +378,6 @@ class Handlers:
                 obj.owner if obj is not None else None,
                 player_id=conn.player_id,
                 zone_id=zone_id,
-                co_owners=sorted(obj.co_owners) if obj is not None else None,
             ),
             exclude={conn.player_id},
         )
@@ -414,7 +412,6 @@ class Handlers:
                     owner,
                     player_id=conn.player_id,
                     zone_id=zone_id,
-                    co_owners=sorted(obj.co_owners) if obj is not None else None,
                 ),
                 exclude={conn.player_id},
             )
@@ -490,7 +487,6 @@ class Handlers:
             removed is not None
             and removed.owner is not None
             and removed.owner != conn.player_id
-            and conn.player_id not in removed.co_owners
         ):
             # Not our object to delete: restore the entry and refuse.
             objects = server.session.get_world_object(room_id, key, zone_id)
@@ -720,7 +716,6 @@ class Handlers:
                             None if obj is None else obj.owner,
                             player_id=conn.player_id,
                             zone_id=old_zone,
-                            co_owners=sorted(obj.co_owners) if obj is not None else None,
                         ),
                         exclude={conn.player_id},
                     )

@@ -38,6 +38,15 @@ def player_name(roster, player_id):
     return "Player %s" % player_id
 
 
+_SILENT_ERROR_MARKERS = (
+    "locked by player",
+    "cannot remove it",
+    "already in use",
+    "on cooldown",
+    "you do not hold",
+)
+
+
 class ToastFilter(object):
     """Decides which client log lines become toasts (or None)."""
 
@@ -57,6 +66,10 @@ class ToastFilter(object):
     def pick(self, line, self_player_id=None, roster=None, world=None):
         """Map one log line to a toast text (or None to stay console-only)."""
         if line.startswith("[MP][ERROR]"):
+            # Ownership/interaction contention is routine demuxer feedback,
+            # not a player-facing problem: keep it console-only.
+            if any(marker in line for marker in _SILENT_ERROR_MARKERS):
+                return None
             return line
         if "[MP][NET] Connected to" in line:
             return "[MP] Connected to the server"

@@ -95,23 +95,18 @@ class WorldMirrorTests(unittest.TestCase):
         mirror.apply_claim_ack("sofa", None)
         self.assertIsNone(mirror.get("sofa").owner)
 
-    def test_co_owners_shared_control(self):
+    def test_exclusive_ownership_single_owner(self):
         mirror = self._mirror(100)
-        mirror.apply_full("lobby", 100, [{"key": "sim:1", "owner": 1000, "co_owners": [1001], "fields": {}}])
+        mirror.apply_full("lobby", 100, [{"key": "sim:1", "owner": 1000, "fields": {}}])
         sim = mirror.get("sim:1")
         self.assertTrue(sim.is_owned_by(1000))
-        self.assertTrue(sim.is_owned_by(1001))
-        self.assertFalse(sim.is_owned_by(1002))
-        self.assertFalse(sim.exclusively_owned_by(1000))
-        self.assertFalse(sim.exclusively_owned_by(1001))
-        view = mirror.get("sim:1")
-        view.co_owners = set()
-        self.assertTrue(view.exclusively_owned_by(1000))
-        mirror.apply_ownership("sim:1", 1000, co_owners=[1001, 1002], zone_id=100)
-        self.assertTrue(mirror.get("sim:1").is_owned_by(1002))
-        mirror.apply_claim_ack("sim:1", 1001, co_owners=[1000])
+        self.assertFalse(sim.is_owned_by(1001))
+        self.assertTrue(sim.exclusively_owned_by(1000))
+        mirror.apply_ownership("sim:1", 1001, zone_id=100)
         self.assertTrue(mirror.get("sim:1").is_owned_by(1001))
-        self.assertTrue(mirror.get("sim:1").is_owned_by(1000))
+        self.assertFalse(mirror.get("sim:1").is_owned_by(1000))
+        mirror.apply_claim_ack("sim:1", None)
+        self.assertIsNone(mirror.get("sim:1").owner)
 
     def test_apply_ownership_wrong_zone_ignored(self):
         mirror = self._mirror(100)

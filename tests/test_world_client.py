@@ -185,8 +185,8 @@ class WorldClientTests(unittest.TestCase):
         self.run_flow(_with_server(flow))
 
 
-    def test_shared_sim_co_ownership_no_fighting(self):
-        """A household sim can be claimed by both players (shared control)."""
+    def test_sim_exclusive_ownership_host_drives(self):
+        """Household sims are single-owner: the host drives, peers mirror."""
         async def flow(server, port):
             alice_log = []
             alice = MultiplayerClient(client_name="Alice", notify=alice_log.append)
@@ -200,7 +200,7 @@ class WorldClientTests(unittest.TestCase):
                 alice_pid = alice.session.player_id
                 bob_pid = bob.session.player_id
 
-                # Alice claims sim:42 (primary), Bob claims it too (co-owner).
+                # Alice claims sim:42 first (host drives it).
                 self.assertTrue(alice.claim_object("sim:42"))
                 self.assertTrue(await _wait_until(
                     lambda: (alice.process_incoming() or True)
@@ -209,50 +209,46 @@ class WorldClientTests(unittest.TestCase):
                     timeout=5.0,
                 ), "Alice never became owner of sim:42")
 
+                # Bob is locked out of the sim (mirrors instead of driving).
                 self.assertTrue(bob.claim_object("sim:42"))
-                self.assertTrue(await _wait_until(
-                    lambda: (bob.process_incoming() or True)
-                    and bob.session.world.get("sim:42") is not None,
-                    timeout=5.0,
-                ), "Bob's sim:42 claim never landed")
-                self.assertFalse(
-                    any("OBJECT_LOCKED" in line for line in bob_log),
-                    "Bob was locked out of a shared sim",
-                )
-
-                # Alice's mirror sees Bob as co-owner; Bob can push deltas.
-                self.assertTrue(await _wait_until(
-                    lambda: (alice.process_incoming() or True)
-                    and alice.session.world.get("sim:42") is not None
-                    and bob_pid in alice.session.world.get("sim:42").co_owners,
-                    timeout=5.0,
-                ), "Alice never learned Bob was co-owner")
-
-                self.assertTrue(bob.update_object("sim:42", {"x": 9.0}))
-                self.assertTrue(await _wait_until(
-                    lambda: (alice.process_incoming() or True)
-                    and alice.session.world.get("sim:42").fields.get("x") == 9.0,
-                    timeout=5.0,
-                ), "Bob's delta on the shared sim never reached Alice")
-                self.assertFalse(
-                    any("OBJECT_LOCKED" in line for line in bob_log),
-                    "Bob was locked updating a shared sim",
-                )
-
-                # A non-sim key stays single-owner: Bob is still locked out.
-                self.assertTrue(alice.claim_object("sofa"))
-                self.assertTrue(await _wait_until(
-                    lambda: (alice.process_incoming() or True)
-                    and alice.session.world.get("sofa") is not None,
-                    timeout=5.0,
-                ))
-                bob_log[:] = []
-                self.assertTrue(bob.claim_object("sofa"))
                 self.assertTrue(await _wait_until(
                     lambda: (bob.process_incoming() or True)
                     and any("OBJECT_LOCKED" in line for line in bob_log),
                     timeout=5.0,
-                ), "Bob should be locked out of a single-owner object")
+                ), "Bob should be locked out of a host-owned sim")
+                self.assertEqual(
+                    bob.session.world.get("sim:42").owner,
+                    alice_pid,
+                    "Bob must see the host as the sim's single owner",
+                )
+                self.assertFalse(
+                    bob.session.world.get("sim:42").is_owned_by(bob_pid),
+                    "Bob must not be (co-)owner of the host's sim",
+                )
+
+                # Bob cannot push deltas on a sim he does not own.
+                bob_log[:] = []
+                self.assertTrue(bob.update_object("sim:42", {"x": 9.0}))
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and any("OBJECT_LOCKED" in line for line in bob_log),
+                    timeout=5.0,
+                ), "Bob should be locked pushing a delta on the host's sim")
+
+                # Releasing hands the sim over so Bob can drive it.
+                self.assertTrue(alice.release_object("sim:42"))
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and bob.session.world.get("sim:42") is not None
+                    and bob.session.world.get("sim:42").owner is None,
+                    timeout=5.0,
+                ), "Alice's release never reached Bob")
+                self.assertTrue(bob.claim_object("sim:42"))
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and bob.session.world.get("sim:42").owner == bob_pid,
+                    timeout=5.0,
+                ), "Bob should drive the sim after release")
             finally:
                 alice.disconnect()
                 bob.disconnect()

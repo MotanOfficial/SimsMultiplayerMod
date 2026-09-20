@@ -330,7 +330,6 @@ class MPServer:
                             None if obj is None else obj.owner,
                             player_id=player_id,
                             zone_id=zone_id,
-                            co_owners=sorted(obj.co_owners) if obj is not None else None,
                         ),
                         exclude={player_id},
                     )
