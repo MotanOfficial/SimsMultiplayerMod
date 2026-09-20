@@ -856,6 +856,44 @@ Fix (commit `57c33a6`, manifest `2026-09-18-57c33a6`):
   end-to-end repro (real host/join binaries over a real TCP socket) confirmed
   `4/4 (complete)` + `Saved '...'` after the fix.
 
+## M25-M27 - Field diagnostics: log hygiene, stable identity, launcher bundles (DONE)
+
+Driven by a real two-PC trial where "we could see each other but nothing
+synced" had to be reconstructed line by line from a long client log.
+
+- [x] **M25 - readable field logs** (`bf9a2d7`, `162f81e`): claim contention is
+      demoted to `[MP][SYNC]` (denials are routine single-driver feedback),
+      denied claims back off permanently per key (cleared only by an
+      `owner -> null` broadcast), every `client.log` line gets a wall-clock
+      timestamp, and a throttled `world sync health: N claim(s) denied by other
+      player(s); <no world update ever received | last world update Xs ago>`
+      line makes a world owned by a silent peer visible with no other traffic.
+- [x] **M25 - sampler hygiene**: implausible definition ids (pointer-like
+      values that cannot be real catalog entries) are no longer sampled into
+      the world catalog.
+- [x] **M26 - stable identity across restarts** (`296127e`): `client_id` was
+      random per game launch, so every restart became a brand-new player (a
+      real server log showed 24x "accepted" and 0x "resumed", with 60s ghost
+      ownership reserved for identities that would never return). It now
+      persists in `Sims4Multiplayer.client_id` beside the config, so `HELLO`
+      resumes the same `player_id` and the ghost/handover scheme works as
+      designed.
+- [x] **M27 - launcher diagnostics** (`tools/diagnostics.py`,
+      `tools/launcher_diag.py`, Diagnostics page): *Export diagnostics* writes
+      one self-describing zip (server log + status, this PC's in-game log,
+      `mp.diag` dump, config, launcher history, versions/paths, README +
+      info.txt) to the Desktop; while the host's lobby is open its launcher
+      runs a small HTTP receiver on lobby port + 1 so a joiner's *Send to host*
+      posts its bundle directly, announced and revealed on the host side.
+      Identity ships as a hash only, files are size-capped, and a busy port
+      fails loudly instead of silently sharing the socket.
+- [x] Tests: 16 diagnostics tests (bundling, truncation notes, identity
+      hashing, receiver round-trip, oversize rejection, busy port, unreachable
+      host) plus the client sync-health tests. Full suite **369 tests OK**.
+      The QML page and the whole host path were validated headless (bundle
+      exported, receiver started/stopped with the lobby, joiner bundle landed
+      and was announced).
+
 ## Out of scope until explicit decision
 
 - Full DNA/lot/room package sharing (needs a large asset protocol and

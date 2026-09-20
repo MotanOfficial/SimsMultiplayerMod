@@ -58,7 +58,8 @@ ApplicationWindow {
                     model: [
                         { icon: "\u25b6", index: 0 },
                         { icon: "\u2699", index: 1 },
-                        { icon: "\u2630", index: 2 }
+                        { icon: "\u2630", index: 2 },
+                        { icon: "\u2695", index: 3 }
                     ]
                     Item {
                         Layout.fillWidth: true
@@ -437,7 +438,169 @@ ApplicationWindow {
                 }
             }
 
-// ------------------------------------------------ page 2: log
+            // ------------------------------------------- page 2: diagnostics
+            ScrollView {
+                id: diagPage
+                clip: true
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+                ColumnLayout {
+                    x: 32
+                    width: diagPage.width - 64
+                    spacing: 20
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 32
+                        spacing: 4
+                        Text {
+                            text: "Diagnostics"
+                            color: Theme.cFg
+                            font.pixelSize: 24
+                            font.bold: true
+                        }
+                        Text {
+                            text: "Collect every log into one file, or send it straight to the other PC."
+                            color: Theme.cMuted
+                            font.pixelSize: 12
+                        }
+                    }
+
+                    // ---- status summary
+                    Rectangle {
+                        Layout.fillWidth: true
+                        color: Theme.cPane
+                        radius: 10
+                        border.width: 1
+                        border.color: Theme.cBorder
+                        implicitHeight: summaryCol.implicitHeight + 40
+                        ColumnLayout {
+                            id: summaryCol
+                            anchors.fill: parent
+                            anchors.margins: 20
+                            spacing: 10
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Text { text: "RUNTIME VERSION"; color: Theme.cMuted; font.pixelSize: 10; font.bold: true; font.letterSpacing: 0.8 }
+                                Item { Layout.fillWidth: true }
+                                Text { text: bridge.runtimeVersion; color: Theme.cFg; font.family: Theme.fMono; font.pixelSize: 11 }
+                            }
+                            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.cBorder }
+                            Text {
+                                Layout.fillWidth: true
+                                text: bridge.diagStatus !== "" ? bridge.diagStatus : "Collecting status..."
+                                color: Theme.cMuted
+                                font.family: Theme.fMono
+                                font.pixelSize: 11
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                    }
+
+                    // ---- actions
+                    Rectangle {
+                        Layout.fillWidth: true
+                        color: Theme.cPane
+                        radius: 10
+                        border.width: 1
+                        border.color: Theme.cBorder
+                        implicitHeight: actionsCol.implicitHeight + 40
+                        ColumnLayout {
+                            id: actionsCol
+                            anchors.fill: parent
+                            anchors.margins: 20
+                            spacing: 12
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 10
+                                AppButton {
+                                    text: "Export diagnostics (.zip)"
+                                    bgColor: Theme.cAccent
+                                    bgHover: Theme.cAccentHover
+                                    onClicked: bridge.exportDiagnostics()
+                                }
+                                AppButton {
+                                    text: "Send to host"
+                                    fgColor: Theme.cGreen
+                                    enabled: bridge.diagTarget !== ""
+                                    onClicked: bridge.sendDiagnosticsToHost()
+                                }
+                                AppButton { text: "Open folder"; onClicked: bridge.openDiagnosticsFolder() }
+                                Item { Layout.fillWidth: true }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: bridge.diagTarget !== ""
+                                      ? ("'Send to host' posts this PC's bundle to " + bridge.diagTarget + " - the host launcher listens there while its lobby is open, and pops the folder open when it arrives.")
+                                      : "To send straight to the host: enter their IP address on the Play page (Join side), then press 'Send to host'."
+                                color: Theme.cMuted
+                                font.pixelSize: 11
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                    }
+
+                    // ---- what gets collected
+                    Rectangle {
+                        Layout.fillWidth: true
+                        color: Theme.cPane
+                        radius: 10
+                        border.width: 1
+                        border.color: Theme.cBorder
+                        implicitHeight: whatCol.implicitHeight + 40
+                        ColumnLayout {
+                            id: whatCol
+                            anchors.fill: parent
+                            anchors.margins: 20
+                            spacing: 10
+                            SectionHeader { label: "WHAT GOES IN THE BUNDLE" }
+                            Text {
+                                Layout.fillWidth: true
+                                color: Theme.cMuted
+                                font.pixelSize: 11
+                                wrapMode: Text.Wrap
+                                lineHeight: 1.35
+                                text: "\u2022 server log + live server status (host PC)\n" +
+                                      "\u2022 the in-game mod log from this PC (the main file - now timestamped)\n" +
+                                      "\u2022 the mp.diag dump, the auto-connect config and launcher settings\n" +
+                                      "\u2022 this launcher's activity history and version/paths summary\n\n" +
+                                      "The identity file is reduced to a hash, and every file is size-capped, so a run-away log can never break the bundle."
+                            }
+                        }
+                    }
+
+                    // ---- host side hint
+                    Rectangle {
+                        Layout.fillWidth: true
+                        color: Theme.cPane
+                        radius: 10
+                        border.width: 1
+                        border.color: Theme.cBorder
+                        implicitHeight: hostCol.implicitHeight + 40
+                        ColumnLayout {
+                            id: hostCol
+                            anchors.fill: parent
+                            anchors.margins: 20
+                            spacing: 10
+                            SectionHeader { label: "HOSTING?" }
+                            Text {
+                                Layout.fillWidth: true
+                                color: Theme.cMuted
+                                font.pixelSize: 11
+                                wrapMode: Text.Wrap
+                                lineHeight: 1.35
+                                text: "While your lobby is open, the other player's launcher can post their logs here in one click. " +
+                                      "Incoming bundles land in the received folder (this button opens it) and are announced in the log."
+                            }
+                        }
+                    }
+
+                    Item { Layout.preferredHeight: 32 }
+                }
+            }
+
+            // ------------------------------------------------ page 3: log
             ColumnLayout {
                 x: 32
                 width: root.width - 60 - 64

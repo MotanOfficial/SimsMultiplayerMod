@@ -245,6 +245,28 @@ as a .exe the other PC needs nothing installed. Host IP is a dropdown of all
 local adapters, so LAN VPNs (Radmin VPN, Hamachi, Tailscale) work: the host
 picks its VPN IP and the joiner enters that address.
 
+### Diagnostics (when something does not sync)
+
+The launcher's **Diagnostics** page collects the whole story in one click:
+
+- **Export diagnostics (.zip)** writes a self-describing bundle to your Desktop:
+  the host server log + live status, this PC's timestamped in-game log, the
+  `mp.diag` dump, the auto-connect config, the launcher's own activity history,
+  and a versions/paths summary. Inside, `README.txt` explains what each file is
+  and how to read the log tags; `info.txt` lists exactly what was collected
+  (and what was missing). The client identity is included as a hash only, and
+  every file is size-capped, so a run-away log can never break the bundle.
+- **Send to host** posts that bundle straight to the other player's launcher
+  while their lobby is open (they listen on lobby port + 1). No file trading:
+  the host sees it announced in the log and the folder pops open. Entries land
+  in `%TEMP%\simmp-launcher\received\`.
+- **Open folder** reveals exported/received bundles.
+
+In-game, the mod log (`%LOCALAPPDATA%\Sims4Multiplayer\client.log`) now carries
+wall-clock timestamps and prints a throttled
+`world sync health: N claim(s) denied by other player(s); ...` line, so a world
+held entirely by a peer that never replicates is visible at a glance.
+
 ## Documentation
 
 - `docs/architecture.md` - layering, threading model, message flow

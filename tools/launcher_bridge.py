@@ -11,15 +11,17 @@ import os
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from launcher_common import MUTED, RUNTIME, _load_app_modules, _load_settings, _save_settings
+from launcher_diag import DiagnosticsMixin
 from launcher_lobby import LobbyMixin
 from launcher_setup import SetupMixin
 
 
-class LauncherBridge(SetupMixin, LobbyMixin, QObject):
+class LauncherBridge(SetupMixin, LobbyMixin, DiagnosticsMixin, QObject):
     cardStatus = Signal(str, str, str, str, int, bool, bool)
     logAppended = Signal(str, str)
     setupStatusChanged = Signal(str, str)
     updateStatusChanged = Signal(str, str)
+    diagStatusChanged = Signal(str)
 
     gamePathChanged = Signal(str)
     modsPathChanged = Signal(str)
@@ -76,6 +78,7 @@ class LauncherBridge(SetupMixin, LobbyMixin, QObject):
         primary = RUNTIME.lobby.find_lan_ip() or ""
         self._lan_ip_index = self._lan_ips.index(primary) if primary in self._lan_ips else 0
         self._auto_detect()
+        self._init_diagnostics()
         QTimer.singleShot(400, self._maybe_check_updates)
 
     # -------------------------------------------------------------- properties
@@ -198,6 +201,19 @@ class LauncherBridge(SetupMixin, LobbyMixin, QObject):
     def joining(self):
         return self._joining
 
+    # ------------------------------------------------------- diagnostics page
+    @Property(str, notify=diagStatusChanged)
+    def runtimeVersion(self):
+        return self._diag_runtime_version_text()
+
+    @Property(str, notify=diagStatusChanged)
+    def diagStatus(self):
+        return self._diag_status_text()
+
+    @Property(str, notify=diagStatusChanged)
+    def diagTarget(self):
+        return self._diag_target_text()
+
     # ---------------------------------------------------------------- slots
     @Slot(int)
     def lanIpSelected(self, index):
@@ -230,6 +246,7 @@ class LauncherBridge(SetupMixin, LobbyMixin, QObject):
         })
         _save_settings(self.settings)
         self._disconnect_held()
+        self._stop_diag_receiver()
         if self.server is not None:
             self.server.stop()
             self.server = None

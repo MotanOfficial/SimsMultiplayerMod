@@ -47,6 +47,7 @@ class LobbyMixin(object):
             self.server = None
             return
         self.hostPort = str(self.server.actual_port)
+        self._start_diag_receiver(self.server.actual_port)
         self._set_card(
             "lobby",
             "Lobby open at %s:%s" % (self._current_ip(), self.server.actual_port),
@@ -59,6 +60,7 @@ class LobbyMixin(object):
     @Slot()
     def stopLobby(self):
         self._disconnect_held()
+        self._stop_diag_receiver()
         if self.server is not None:
             self.server.stop()
             self.server = None
