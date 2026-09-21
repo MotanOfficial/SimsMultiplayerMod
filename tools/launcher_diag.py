@@ -83,7 +83,32 @@ class DiagnosticsMixin(object):
             diag = _diag()
             parts = ["runtime %s" % self._diag_runtime_version]
             try:
-                present, _missing = diag.default_paths()
+                present, missing = diag.default_paths()
+            except AttributeError:
+                # Older synced runtime: fall back to direct existence checks
+                # against the same paths the exporter reads.
+                present, missing = [], []
+                try:
+                    import os as _os
+
+                    from launcher_common import RUNTIME_DIR as _rd
+
+                    game_log = diag.game_client_log_path()
+                    checks = [
+                        ("server-log.txt", _os.path.join(_rd, "server.log")),
+                        ("server-status.json", _os.path.join(_rd, "status.json")),
+                        ("game-client.log", game_log),
+                    ]
+                    for name, path in checks:
+                        try:
+                            if _os.path.isfile(path):
+                                present.append((name, path))
+                            else:
+                                missing.append((name, path))
+                        except Exception:  # noqa: BLE001
+                            missing.append((name, path))
+                except Exception:  # noqa: BLE001
+                    pass
             except Exception:  # noqa: BLE001
                 present = []
             present_names = {name for name, _path in present}
