@@ -79,17 +79,23 @@ class DiagnosticsMixin(object):
 
     @Slot()
     def refreshDiagStatus(self):
-        diag = _diag()
-        parts = ["runtime %s" % self._diag_runtime_version]
-        present, _missing = diag.default_paths()
-        present_names = {name for name, _path in present}
-        parts.append("server log %s" % ("yes" if "server-log.txt" in present_names else "no"))
-        parts.append("game log %s" % ("yes" if "game-client.log" in present_names else "no"))
-        if self._diag_receiver is not None and self._diag_receiver.thread_alive():
-            parts.append("receiving on :%s" % self._diag_receiver.actual_port)
-        if self._diag_last_export:
-            parts.append("last export: %s" % os.path.basename(self._diag_last_export))
-        self._diag_set_status(" | ".join(parts))
+        try:
+            diag = _diag()
+            parts = ["runtime %s" % self._diag_runtime_version]
+            try:
+                present, _missing = diag.default_paths()
+            except Exception:  # noqa: BLE001
+                present = []
+            present_names = {name for name, _path in present}
+            parts.append("server log %s" % ("yes" if "server-log.txt" in present_names else "no"))
+            parts.append("game log %s" % ("yes" if "game-client.log" in present_names else "no"))
+            if self._diag_receiver is not None and self._diag_receiver.thread_alive():
+                parts.append("receiving on :%s" % self._diag_receiver.actual_port)
+            if self._diag_last_export:
+                parts.append("last export: %s" % os.path.basename(self._diag_last_export))
+            self._diag_set_status(" | ".join(parts))
+        except Exception as exc:  # noqa: BLE001 - status must never stay blank
+            self._diag_set_status("status unavailable (%s)" % exc)
 
     def _diag_file_exists(self, name):
         try:
