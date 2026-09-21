@@ -1,5 +1,5 @@
 {
- "version": "2026-09-21-672ca58",
+ "version": "2026-09-21-ad6047e",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -23,7 +23,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/connectivity.py",
-   "sha256": "ef5b1d078554e7eab10e7e94988858b996daae9433e13555f8de0301512d3a43"
+   "sha256": "154bb61fac47612292f5901049754c78472f15bdf9aa41d834d4b7b7aed0f7b3"
   },
   {
    "path": "client_mod/scripts/simmp_client/hooks/__init__.py",
@@ -55,7 +55,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/sims4_plugin.py",
-   "sha256": "faa89170c10de88eb58d61d880a6cba1373f819dc0b7617472c017261cc7b821"
+   "sha256": "6036736a5e0d0abccb6e8afef28a656d1e12407fbd98280672ff8481a6003d12"
   },
   {
    "path": "client_mod/scripts/simmp_client/state/__init__.py",
@@ -179,7 +179,7 @@
   },
   {
    "path": "tools/launcher_lobby.py",
-   "sha256": "b238ead810e576cdf021a932e3dba5b5705ab8c5abd84af31a985a54908b136c"
+   "sha256": "20600e79caef6dfe53aa00d63cb8dbd04afd161fd510631a00f63f5517e8f27a"
   },
   {
    "path": "tools/launcher_setup.py",
