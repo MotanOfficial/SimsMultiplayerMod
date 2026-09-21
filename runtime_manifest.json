@@ -1,5 +1,5 @@
 {
- "version": "2026-09-21-7284ee8",
+ "version": "2026-09-21-a0cac05",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -175,7 +175,7 @@
   },
   {
    "path": "tools/launcher_diag.py",
-   "sha256": "362dc87432ebd8dd9542aa8351a64471725e3f201440e37b2576db69a727698a"
+   "sha256": "36f8c4f583bdcd9b1a449bab748948f3e8e05e48547dae267973507ada74e3cf"
   },
   {
    "path": "tools/launcher_lobby.py",
