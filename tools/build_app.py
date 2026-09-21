@@ -52,11 +52,23 @@ HIDDEN_IMPORTS = [
     "simmp.framing",
     "simmp.messages",
     "simmp.validation",
-"tools",
+    "tools",
     "tools.game_paths",
     "tools.lobby",
     "tools.save_metadata",
     "tools.updater",
+    "tools.launcher_bridge",
+    "tools.launcher_diag",
+    "tools.launcher_lobby",
+    "tools.launcher_setup",
+    "tools.launcher_common",
+    "tools.diagnostics",
+    # Stdlib modules the frozen bundle must carry: diagnostics and the
+    # launcher touch these at runtime and trimmed bundles break them.
+    "platform",
+    "http.server",
+    "urllib.request",
+    "urllib.parse",
     # Qt runtime modules the QML engine loads lazily but PyInstaller must
     # trace now so their hook-collected binaries/qml data are bundled.
     "PySide6.QtQml",
