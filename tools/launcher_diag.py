@@ -79,9 +79,12 @@ class DiagnosticsMixin(object):
 
     @Slot()
     def refreshDiagStatus(self):
+        diag = _diag()
         parts = ["runtime %s" % self._diag_runtime_version]
-        parts.append("server log %s" % ("yes" if self._diag_file_exists("server-log.txt") else "no"))
-        parts.append("game log %s" % ("yes" if self._diag_file_exists("game-client.log") else "no"))
+        present, _missing = diag.default_paths()
+        present_names = {name for name, _path in present}
+        parts.append("server log %s" % ("yes" if "server-log.txt" in present_names else "no"))
+        parts.append("game log %s" % ("yes" if "game-client.log" in present_names else "no"))
         if self._diag_receiver is not None and self._diag_receiver.thread_alive():
             parts.append("receiving on :%s" % self._diag_receiver.actual_port)
         if self._diag_last_export:
@@ -90,8 +93,9 @@ class DiagnosticsMixin(object):
 
     def _diag_file_exists(self, name):
         try:
-            base = os.path.join(RUNTIME_DIR)
-            return os.path.isfile(os.path.join(base, name))
+            diag = _diag()
+            present, _missing = diag.default_paths()
+            return any(entry == name for entry, _path in present)
         except Exception:  # noqa: BLE001
             return False
 
