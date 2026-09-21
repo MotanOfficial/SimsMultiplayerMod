@@ -85,16 +85,27 @@ class LobbyMixin(object):
         if self.server is None or not self.server.thread_alive():
             return
         names = ", ".join(p.get("name", "?") for p in connected)
+        if connected:
+            detail = "%d player(s) connected: %s" % (len(connected), names)
+            color = GREEN
+        elif self._synced:
+            # Lobby TCP clients disconnect when either side presses Start so
+            # the game can take the seat. Keep the host informed instead of
+            # looking like everyone vanished.
+            detail = "Lobby clients left to launch - press Start Game if you haven't."
+            color = AMBER
+        else:
+            detail = "Waiting for players to join..."
+            color = MUTED
         self._set_card(
             "lobby",
             "Lobby open at %s:%s" % (self._current_ip(), self.server.actual_port),
-            ("%d player(s) connected: %s" % (len(connected), names)) if connected
-            else "Waiting for players to join...",
-            GREEN if connected else MUTED,
+            detail,
+            color,
         )
         if connected:
             self._set_can_share(bool(self._selected_save and not self._synced))
-            self._update_host_start_button()
+        self._update_host_start_button()
 
     def _player_count(self):
         if hasattr(self, "_connected_players"):
@@ -208,7 +219,10 @@ class LobbyMixin(object):
         self._update_host_start_button()
 
     def _update_host_start_button(self):
-        self._set_can_host_start(self._synced and self._player_count() >= 1)
+        # Once the save is synced, Start stays available even if lobby TCP
+        # clients disconnect to launch the game. Requiring a live player
+        # count made the host Start button die the moment the laptop left.
+        self._set_can_host_start(bool(self._synced))
 
     # ----------------------------------------------------------------- join
     @Slot()

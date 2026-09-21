@@ -114,6 +114,12 @@ class MultiplayerClient:
         # in flight briefly drops the old key).
         self.object_gone_delay = 5.0
         self._pending_removals = {}
+        # Last locally sampled fields for lot objects. Used so we only claim
+        # an `obj:` key when the player actually moved/edited it - otherwise
+        # the first client to load claims every sofa and the peer drowns in
+        # OBJECT_LOCKED spam.
+        self._last_obj_fields = {}
+        self._alarm_start_logged = False
 
     def set_presence_sampler(self, sampler):
         """sampler() -> (zone_id, lot_id) or None. Called on the game thread."""
@@ -796,10 +802,22 @@ class MultiplayerClient:
             self.time_ticks = payload.get("ticks")
             self.time_gate = gate
             now = time.time()
-            if gate:
-                # Room paused (peer still joining/loading): apply the PAUSE
-                # immediately, never delayed by an echo window.
+            # Co-op start hold: the server opens the gate as soon as every
+            # *currently connected* member is ready. Alone that means a solo
+            # TIME_READY unpauses the room. `min_players` must still force a
+            # local pause until peers exist, or the first player desyncs.
+            hold_for_peers = (not gate) and self._players_short()
+            if gate or hold_for_peers:
+                # Room paused (peer still joining/loading) OR waiting for the
+                # configured co-op headcount: apply PAUSE immediately.
                 self._apply_room_speed(CLOCK_SPEED_PAUSED)
+                if hold_for_peers and not self._players_wait_logged:
+                    self._players_wait_logged = True
+                    self._log(
+                        "TIME",
+                        "Holding paused until %d players present (%d connected)"
+                        % (self.min_players, self._connected_player_count()),
+                    )
             elif was_closed:
                 self._gate_open_since = now
                 if now >= self._clock_echo_until:
@@ -960,7 +978,10 @@ class MultiplayerClient:
             if now - self._last_alarm_fail_log >= 10.0:
                 self._last_alarm_fail_log = now
                 self._log("ERROR", "sync alarm unavailable; will retry on next tick/command")
-        else:
+        elif not self._alarm_start_logged:
+            # Chained one-off alarms re-arm every 0.5s; log once so field
+            # logs stay readable (was: thousands of "sync alarm started").
+            self._alarm_start_logged = True
             self._log("NET", "sync alarm started")
 
     def _on_alarm_chained(self, *args):
@@ -1291,17 +1312,23 @@ class MultiplayerClient:
             key = entry.get("key")
             if not isinstance(key, str) or not key:
                 continue
+            fields = entry.get("fields", {}) or {}
             mirror = self.session.world.get(key)
             if mirror is None or not mirror.is_owned_by(mine):
-                # Not owned on this session yet (or no longer shared with us):
-                # (re)claim so the next tick can push deltas. One claim per key
-                # until the ack/ownership lands, paused while the server denied
-                # us (someone else holds a non-shared key).
+                # Not owned on this session yet (or no longer shared with us).
+                # Sims auto-claim so each player drives their household.
+                # Lot objects (`obj:`) only claim when the local sample
+                # changed - otherwise the first client to load steals the
+                # whole lot and the peer never gets a turn.
+                if not self._should_auto_claim(key, fields, mirror):
+                    continue
                 if key not in self._claimed_in_flight and now >= self._claim_denied_until.get(key, 0):
                     self._claimed_in_flight.add(key)
                     self.claim_object(key)
                 continue
-            updates.append({"key": key, "fields": entry.get("fields", {}), "rev": 0})
+            if key.startswith("obj:"):
+                self._last_obj_fields[key] = dict(fields)
+            updates.append({"key": key, "fields": fields, "rev": 0})
         if updates:
             # A real lot owns far more objects than a single OBJECT_UPDATE may
             # carry, and the protocol rejects oversize batches as MALFORMED
@@ -1313,6 +1340,21 @@ class MultiplayerClient:
                     sent_all = False
             if sent_all:
                 self._last_world_sent = now
+
+    def _should_auto_claim(self, key, fields, mirror):
+        """Whether an unowned sampled key should be claimed this tick."""
+        if key.startswith("sim:"):
+            return True
+        if key.startswith("obj:"):
+            prev = self._last_obj_fields.get(key)
+            snapshot = dict(fields) if isinstance(fields, dict) else {}
+            self._last_obj_fields[key] = snapshot
+            if prev is None:
+                # First sight of this lot object: remember it, do not claim.
+                return False
+            return prev != snapshot
+        # Legacy / test keys (e.g. "sofa") keep the old auto-claim behaviour.
+        return True
 
     def _send_object_gone(self, key):
         if self.engine is None or not self.engine.connected:

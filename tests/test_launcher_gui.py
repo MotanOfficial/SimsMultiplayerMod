@@ -90,21 +90,20 @@ class LauncherGuiTests(unittest.TestCase):
 
     def test_host_start_uses_inmemory_player_count(self):
         app = self._app()
-        # unsynced + no players -> disabled even though a stale status file
-        # might still exist on disk (regression: the old code re-read the file)
+        # unsynced -> disabled even if players are connected
         app._synced = False
         app._set_players(0)
         app._update_host_start_button()
         self.assertFalse(app.canHostStart)
-        # synced + player connected in-memory -> enabled
+        # synced -> enabled even with zero lobby TCP clients (they disconnect
+        # when either side presses Start to launch the game)
         app._synced = True
+        app._set_players(0)
+        app._update_host_start_button()
+        self.assertTrue(app.canHostStart)
         app._set_players(1)
         app._update_host_start_button()
         self.assertTrue(app.canHostStart)
-        # player leaves (in-memory only; no file dependency) -> disabled again
-        app._set_players(0)
-        app._update_host_start_button()
-        self.assertFalse(app.canHostStart)
 
     def test_join_line_surfaces_save_progress_and_errors(self):
         app = self._app()

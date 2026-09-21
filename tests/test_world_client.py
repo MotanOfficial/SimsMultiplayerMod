@@ -1,6 +1,7 @@
 import asyncio
 import time
 import unittest
+from unittest import mock
 
 from simmp_client.connectivity import MultiplayerClient
 from server.networking.server import MPServer
@@ -183,6 +184,28 @@ class WorldClientTests(unittest.TestCase):
                 bob.disconnect()
 
         self.run_flow(_with_server(flow))
+
+    def test_lot_objects_do_not_auto_claim_on_first_sight(self):
+        """Furniture must not be claimed by whoever loads first."""
+        client = MultiplayerClient(client_name="Alice")
+        client.engine = type("E", (), {"connected": True, "send_object_claim": lambda *a, **k: True, "send_object_update": lambda *a, **k: True, "send_object_gone": lambda *a, **k: True})()
+        client.session.player_id = 1000
+        client.world_sync = True
+        client.world_interval = 0.0
+        samples = [{"key": "obj:9@1_2_3", "fields": {"x": 1.0}}]
+        client.set_world_sampler(lambda: samples)
+        with mock.patch("simmp_client.connectivity.game_hooks.current_zone_running_state") as zone:
+            zone.return_value = type("Z", (), {"running": True, "zone_id": 7})()
+            client._maybe_send_world_update()
+        self.assertEqual(client._claimed_in_flight, set())
+        self.assertIn("obj:9@1_2_3", client._last_obj_fields)
+        # A local edit (field change) should claim.
+        samples[0] = {"key": "obj:9@1_2_3", "fields": {"x": 2.0}}
+        client._last_world_sent = 0.0
+        with mock.patch("simmp_client.connectivity.game_hooks.current_zone_running_state") as zone:
+            zone.return_value = type("Z", (), {"running": True, "zone_id": 7})()
+            client._maybe_send_world_update()
+        self.assertIn("obj:9@1_2_3", client._claimed_in_flight)
 
 
     def test_sim_exclusive_ownership_host_drives(self):

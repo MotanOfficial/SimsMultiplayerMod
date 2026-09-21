@@ -34,11 +34,36 @@ def _apply_config(config):
     return client
 
 
-def _safe_connect(client, host, port):
+def _safe_connect(client, host, port, attempt=1, max_attempts=8):
+    """Connect once; on failure log and re-arm so auto-connect is not silent."""
+    from simmp_client.hooks import game_hooks
+
     try:
-        client.connect(host, port)
-    except Exception:
-        pass
+        ok = client.connect(host, port)
+    except Exception as exc:
+        ok = False
+        try:
+            client._log("ERROR", "auto-connect to %s:%s failed: %s" % (host, port, exc))
+        except Exception:
+            pass
+    else:
+        if not ok:
+            try:
+                client._log(
+                    "ERROR",
+                    "auto-connect to %s:%s failed (attempt %s/%s)"
+                    % (host, port, attempt, max_attempts),
+                )
+            except Exception:
+                pass
+    if ok or attempt >= max_attempts:
+        return
+    delay = min(2.0 * attempt, 15.0)
+    game_hooks.add_one_off_real_time_alarm(
+        client,
+        delay,
+        lambda *args: _safe_connect(client, host, port, attempt + 1, max_attempts),
+    )
 
 
 def schedule_auto_connect():

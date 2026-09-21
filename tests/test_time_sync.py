@@ -409,6 +409,19 @@ class TimeClientHandlerTests(unittest.TestCase):
         self.assertEqual(client.time_speed, 1)
         setter.assert_called_once_with(1)
 
+    def test_time_sync_holds_pause_while_min_players_short(self):
+        # Regression from field logs: server opens the gate for a solo ready
+        # player, TIME_SYNC speed=1 arrives, and the first client unpaused
+        # while still waiting for the peer (min_players=2).
+        client = MultiplayerClient(client_name="Alice")
+        client.min_players = 2
+        client.session.room_players = {1000: {"connected": True}}
+        with mock.patch("simmp_client.connectivity.game_hooks.set_clock_speed", return_value=0) as setter:
+            client._handle_message(msg.make_time_sync(1, ticks=42))
+        self.assertFalse(client.time_gate)
+        self.assertEqual(client.time_speed, 1)
+        setter.assert_called_once_with(0)
+
     def test_time_sync_closes_gate_and_pauses(self):
         client = MultiplayerClient(client_name="Alice")
         client.time_gate = False
