@@ -33,6 +33,18 @@ def _diag():
 
 LOG_HISTORY_LIMIT = 400
 
+def _safe_platform():
+    """platform.platform() with a fallback for trimmed frozen stdlibs."""
+    try:
+        import platform as _platform
+
+        return _platform.platform()
+    except Exception:  # noqa: BLE001 - 'platform' missing from the bundle
+        import sys as _sys
+
+        return "%s %s" % (_sys.platform, _sys.version.split()[0])
+
+
 
 class DiagnosticsMixin(object):
     # ------------------------------------------------------------- lifecycle
@@ -152,7 +164,7 @@ class DiagnosticsMixin(object):
                                   and self.server.thread_alive()),
             "frozen exe": bool(getattr(__import__("sys"), "_MEIPASS", None)),
             "python": __import__("sys").version.split()[0],
-            "platform": __import__("platform").platform(),
+            "platform": _safe_platform(),
         }
         return info
 
