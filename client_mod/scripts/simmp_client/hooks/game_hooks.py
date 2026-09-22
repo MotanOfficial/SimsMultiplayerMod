@@ -838,7 +838,8 @@ def apply_interactions(entries):
         if started:
             _applier_log("[MP][MIRROR] applied %d remote interaction(s)" % started)
         return started
-    except Exception:
+    except Exception as exc:
+        _applier_log("[MP][MIRROR] apply crashed: %s: %s" % (type(exc).__name__, exc))
         return 0
 
 
@@ -926,8 +927,27 @@ def _push_interaction(sim, affordance, target):
     Clears the local queue first when possible: a peer-driven Sleep/Sit must
     preempt whatever autonomy just queued on this machine, or the push is
     silently ignored and the laptop "does what it wants".
+
+    Prefers ``push_super_affordance`` with an ``InteractionContext`` (the
+    pattern community mods and open-source MP relays use). Raw
+    ``queue.push_interaction`` on a mixer tuning is a common silent failure
+    path for names like ``sleep_Passive``.
     """
     _cancel_sim_queue(sim)
+    context = _interaction_context(sim)
+    if context is not None:
+        try:
+            result = sim.push_super_affordance(affordance, target, context)
+            if result:
+                return True
+        except Exception:
+            pass
+        try:
+            result = sim.push_super_affordance(affordance, target, context, force=True)
+            if result:
+                return True
+        except Exception:
+            pass
     try:
         sim.queue.push_interaction(affordance, target=target)
         return True
@@ -939,7 +959,6 @@ def _push_interaction(sim, affordance, target):
     except Exception:
         pass
     try:
-        # Some affordances take (target, context) ordering.
         sim.push_super_affordance(affordance, target)
         return True
     except Exception:
@@ -947,8 +966,33 @@ def _push_interaction(sim, affordance, target):
     return False
 
 
+def _interaction_context(sim):
+    """Best-effort InteractionContext for script-pushed affordances."""
+    try:
+        from interactions.context import InteractionContext
+        from interactions.priority import Priority
+
+        return InteractionContext(
+            sim,
+            InteractionContext.SOURCE_SCRIPT,
+            Priority.High,
+            client=None,
+            pick=None,
+        )
+    except Exception:
+        pass
+    try:
+        from interactions.context import InteractionContext
+
+        return InteractionContext(sim, InteractionContext.SOURCE_SCRIPT, 1)
+    except Exception:
+        return None
+
+
 def _cancel_sim_queue(sim):
     """Best-effort clear of a sim's local interaction queue."""
+    if sim is None:
+        return
     queue = getattr(sim, "queue", None)
     if queue is None:
         return
@@ -974,6 +1018,13 @@ def _cancel_sim_queue(sim):
                     cancel()
             except Exception:
                 pass
+    except Exception:
+        pass
+    # Also cancel running super-interactions when the API exists.
+    try:
+        cancel_si = getattr(sim, "cancel_all_interactions", None)
+        if cancel_si is not None:
+            cancel_si()
     except Exception:
         pass
 
@@ -1053,7 +1104,9 @@ def reconcile_autonomy(remote_owner_keys, my_player_id, my_zone_id, owned_keys=N
       - unowned -> suppress (freeze until someone selects/claims them)
 
     Freezing unowned sims is what stops the laptop from freestyling while the
-    host still owns every sim. Returns (suppressed, restored, skipped).
+    host still owns every sim. Even when the autonomy API is unavailable
+    (field logs: skipped=5), hard-cancel the local queue so peer Sleep/Sit
+    is not fought by local fillers. Returns (suppressed, restored, skipped).
     """
     suppressed = 0
     restored = 0
@@ -1073,6 +1126,8 @@ def reconcile_autonomy(remote_owner_keys, my_player_id, my_zone_id, owned_keys=N
             # Unclaimed household member: keep frozen on every client so
             # autonomy cannot diverge before someone takes the wheel.
             should_suppress = True
+        if should_suppress:
+            _cancel_sim_queue(sim)
         try:
             if set_sim_autonomy(sim_info, not should_suppress):
                 if should_suppress:
@@ -1080,7 +1135,11 @@ def reconcile_autonomy(remote_owner_keys, my_player_id, my_zone_id, owned_keys=N
                 else:
                     restored += 1
             else:
-                skipped += 1
+                # API missing: still count suppress when we cancelled the queue.
+                if should_suppress:
+                    suppressed += 1
+                else:
+                    skipped += 1
         except Exception:
             skipped += 1
     return suppressed, restored, skipped
@@ -1231,14 +1290,15 @@ def sample_interactions():
          "affordance": "<Name>", "affordance_id": <guid64>,
          "target": "sim:<id>"}
 
-    ``interaction`` is the running class name (display); ``affordance`` and
-    ``affordance_id`` are the super affordance the player actually clicked,
-    the identity the receiving client needs to push the same interaction onto
-    its mirrored sim. ``target`` is the aim key when the interaction targets
-    another sim (``sim:<id>``) or a lot object (``obj:<def>@<grid>``);
-    self-targets are omitted. All extra fields are best-effort: entries
-    degrade to label-only when the extraction fails. Safe to call outside
-    the game.
+    Prefers the *super* interaction (SI) over a currently-playing mixer.
+    Open-source MP mods (ts4mp) relay native ``push_interaction`` /
+    ``select_choice`` commands; mixers like ``sleep_Passive`` cannot be
+    pushed as super affordances, so field logs showed START with MIRROR=0.
+    ``interaction`` stays the visible class name; ``affordance`` /
+    ``affordance_id`` come from the SI the peer must push. ``target`` is
+    the aim key when the interaction targets another sim or lot object.
+    Idle/filler passives are skipped so autonomy noise does not steal the
+    interaction lock from a peer Sleep/Sit. Safe offline.
     """
     entries = []
     for sim_info, sim in _instanced_sim_infos():
@@ -1246,9 +1306,18 @@ def sample_interactions():
         if key is None:
             continue
         running = []
+        si_state = getattr(sim, "si_state", None)
+        if si_state is not None:
+            try:
+                for si in si_state:
+                    if len(running) >= 3:
+                        break
+                    running.append(si)
+            except Exception:
+                pass
         try:
             top = sim.get_currently_playing_interaction()
-            if top is not None:
+            if top is not None and not any(top is item for item in running):
                 running.append(top)
         except Exception:
             pass
@@ -1256,7 +1325,7 @@ def sample_interactions():
         if queue is not None:
             try:
                 for interaction in queue:
-                    if len(running) >= 3:
+                    if len(running) >= 4:
                         break
                     if any(interaction is item for item in running):
                         continue
@@ -1265,23 +1334,73 @@ def sample_interactions():
                 pass
         seen = set()
         for interaction in running:
-            label = _interaction_label(interaction)
+            source = _interaction_for_mirror(interaction)
+            label = _interaction_label(source) or _interaction_label(interaction)
             if label is None or label in seen:
+                continue
+            if _is_noise_interaction(label):
                 continue
             seen.add(label)
             entry = {"key": key, "interaction": label}
-            affordance_id = _interaction_affordance_id(interaction)
+            affordance_id = _interaction_affordance_id(source)
             if affordance_id is not None:
                 entry["affordance_id"] = affordance_id
-            affordance_name = _interaction_affordance_name(interaction)
+            affordance_name = _interaction_affordance_name(source)
             if affordance_name is not None:
                 entry["affordance"] = affordance_name
-            target_key = _interaction_target_key(interaction, key)
+            target_key = _interaction_target_key(source, key)
+            if target_key is None:
+                target_key = _interaction_target_key(interaction, key)
             if target_key is not None:
                 entry["target"] = target_key
             entries.append(entry)
     return entries
 
+
+_NOISE_INTERACTION_PREFIXES = (
+    "stand_Passive",
+    "stand_Cat_Passive",
+    "Emotion_Idle",
+    "social_adjustment",
+    "idle_Buff_",
+    "aggregateSuperInteraction_AutonomyFiller",
+    "baby_Mixer_",
+)
+
+
+def _is_noise_interaction(label):
+    """True for autonomy fillers that must not fight peer Sleep/Sit."""
+    if not isinstance(label, str) or not label:
+        return True
+    for prefix in _NOISE_INTERACTION_PREFIXES:
+        if label == prefix or label.startswith(prefix):
+            return True
+    return False
+
+
+def _interaction_for_mirror(interaction):
+    """Promote a mixer to its super interaction when one is available.
+
+    Pushing ``sleep_Passive`` (mixer) as a super affordance is a no-op on
+    the peer; the SI under it is what ``push_super_affordance`` expects.
+    """
+    if interaction is None:
+        return None
+    try:
+        parent = getattr(interaction, "super_interaction", None)
+        if parent is not None and parent is not interaction:
+            return parent
+    except Exception:
+        pass
+    try:
+        get_si = getattr(interaction, "get_super_interaction", None)
+        if get_si is not None:
+            parent = get_si()
+            if parent is not None and parent is not interaction:
+                return parent
+    except Exception:
+        pass
+    return interaction
 
 def sample_household_funds():
     """Best-effort household simoleon balance (int) or None offline/unknown."""
@@ -1590,6 +1709,13 @@ def _interaction_affordance_id(interaction):
     try:
         affordance = interaction.get_affordance()
         candidates.append(getattr(affordance, "guid64", None))
+    except Exception:
+        pass
+    try:
+        # Mixer → SI tuning id when the running SI object is unavailable.
+        parent = getattr(interaction, "super_affordance", None)
+        candidates.append(getattr(parent, "id", None))
+        candidates.append(getattr(parent, "guid64", None))
     except Exception:
         pass
     for value in candidates:

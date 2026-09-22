@@ -239,12 +239,12 @@ class Session:
         return entry
 
     def claim_object(self, room_id, key, player_id, zone_id=None):
-        """Attempt to acquire exclusive ownership in `zone_id`.
+        """Attempt to acquire ownership in `zone_id`.
 
-        Returns (ok, already_owner, prev_owner). Ownership is exclusive: a
-        key owned by someone else is refused, so exactly one player drives a
-        sim (the others mirror it). In the normal join order the room host
-        claims the household sims first.
+        Returns (ok, already_owner, prev_owner). Lot objects (`obj:`) stay
+        exclusive. Sims (`sim:`) use last-select-wins transfer so two players
+        can drive the same sim the way open-source MP mods do (command
+        relay / shared household), instead of permanent OBJECT_LOCKED.
         """
         objects = self._world_by_zone.setdefault(self._zone_key(room_id, zone_id), {})
         obj = objects.get(key)
@@ -252,9 +252,14 @@ class Session:
             obj = WorldObject(key)
             objects[key] = obj
         if obj.owner is not None and obj.owner != player_id:
+            if isinstance(key, str) and key.startswith("sim:"):
+                prev = obj.owner
+                obj.owner = player_id
+                return (True, False, prev)
             return (False, False, obj.owner)
+        already = obj.owner == player_id
         obj.owner = player_id
-        return (True, obj.owner == player_id, None)
+        return (True, already, None)
 
     def release_object(self, room_id, key, player_id, zone_id=None):
         """Release ownership in `zone_id` if held by `player_id`.
@@ -335,17 +340,22 @@ class Session:
         return entry
 
     def request_interaction(self, room_id, key, player_id, interaction, args=None, now=None, cooldown_override=None, affordance=None, affordance_id=None, target=None, zone_id=None):
-        """Reserve `key` for `player_id`'s interaction in `zone_id`, first-come-first-served.
+        """Reserve `key` for `player_id`'s interaction in `zone_id`.
 
         Returns a (status, detail) tuple:
-          ("start", entry)   - granted (or renewed by the same holder)
+          ("start", entry)   - granted (or renewed / stolen)
           ("busy", holder_id) - another player currently holds the key
           ("cooldown", cooldown_until) - key was recently released
+
+        Lot-object keys stay first-come-first-served. Sim keys use
+        last-writer-wins so both players can issue Sleep/Sit on the same
+        household member (peer mirrors via INTERACTION_START).
         """
         now = now if now is not None else time.time()
         zone = self._zone_key(room_id, zone_id)
         interactions = self._interactions_by_zone.setdefault(zone, {})
         current = interactions.get(key)
+        sim_key = isinstance(key, str) and key.startswith("sim:")
         if current is not None:
             if current.player_id == player_id:
                 current.interaction = interaction
@@ -355,12 +365,15 @@ class Session:
                 current.target = target
                 current.started_at = now
                 return ("start", self._interaction_entry(current))
-            return ("busy", current.player_id)
+            if not sim_key:
+                return ("busy", current.player_id)
+            # Last-writer-wins on sims: drop the prior hold with no cooldown.
+            del interactions[key]
         cooldown_until = self._cooldowns_by_zone.get(zone, {}).get(key, 0)
-        if cooldown_until > now:
+        if cooldown_until > now and not sim_key:
             return ("cooldown", cooldown_until)
         if cooldown_until:
-            del self._cooldowns_by_zone[zone][key]
+            self._cooldowns_by_zone.get(zone, {}).pop(key, None)
         held = Interaction(key, player_id, interaction, now, args, affordance, affordance_id, target)
         interactions[key] = held
         return ("start", self._interaction_entry(held))

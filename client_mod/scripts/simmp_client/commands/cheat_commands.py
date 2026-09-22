@@ -132,7 +132,9 @@ def install_presence_sampler():
     _client.set_interaction_sampler(game_hooks.sample_interactions)
     _client.set_interaction_applier(game_hooks.apply_interactions)
     _client.set_autonomy_reconciler(game_hooks.reconcile_autonomy)
-    game_hooks.set_interaction_logger(_console_output)
+    # FileLog via _notify: CheatOutput alone no-ops without a console
+    # connection, which hid every [MP][MIRROR] skip/push line in field logs.
+    game_hooks.set_interaction_logger(_notify)
     _client.travel_controller = _travel_controller
 
 

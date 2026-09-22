@@ -137,12 +137,24 @@ def analyze_client_log(text, label):
     if sim_locks >= 5:
         findings.append(
             (
-                "fail",
-                "%s: %s sim OBJECT_LOCKED - host likely claimed the whole "
-                "household; laptop cannot drive any sim (use active-sim claim)"
+                "warn",
+                "%s: %s sim OBJECT_LOCKED (legacy exclusive claim) - rebuild "
+                "with last-select-wins sim transfer if this build is old"
                 % (label, sim_locks),
             )
         )
+    mirror_lines = _count(r"\[MP\]\[MIRROR\]", text)
+    sleep_starts = _count(r"Interaction start: sleep_", text)
+    if sleep_starts and not mirror_lines:
+        findings.append(
+            (
+                "fail",
+                "%s: saw sleep Interaction start(s) but zero [MP][MIRROR] "
+                "lines - peer never applied (logger/affordance)" % label,
+            )
+        )
+    elif mirror_lines:
+        findings.append(("ok", "%s: [MP][MIRROR]=%s" % (label, mirror_lines)))
     ownership_host = _count(r"Ownership ack for 'sim:[^']+': owner=\d+", text)
     if "world sync health" in text and "denied" in text:
         findings.append(

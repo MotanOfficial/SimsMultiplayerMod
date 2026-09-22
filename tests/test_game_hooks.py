@@ -93,6 +93,22 @@ class GameHooksSamplerTests(unittest.TestCase):
 
         self.assertIsNone(game_hooks._interaction_target_key(NoTarget(), "sim:1"))
 
+    def test_noise_and_super_promotion_helpers(self):
+        self.assertTrue(game_hooks._is_noise_interaction("stand_Passive"))
+        self.assertTrue(game_hooks._is_noise_interaction("Emotion_Idle"))
+        self.assertTrue(game_hooks._is_noise_interaction("social_adjustment"))
+        self.assertFalse(game_hooks._is_noise_interaction("sleep_Passive"))
+        self.assertFalse(game_hooks._is_noise_interaction("bed_Sleep"))
+
+        class SuperSI(object):
+            pass
+
+        class Mixer(object):
+            super_interaction = SuperSI()
+
+        self.assertIsInstance(game_hooks._interaction_for_mirror(Mixer()), SuperSI)
+        self.assertIsInstance(game_hooks._interaction_for_mirror(SuperSI()), SuperSI)
+
     def test_interaction_object_target_key_and_resolver(self):
         class FakeVec:
             x = 1.0

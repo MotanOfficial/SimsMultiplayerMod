@@ -881,14 +881,20 @@ class MultiplayerClient:
         elif message_type == "OBJECT_OWNERSHIP":
             self.session.apply_object_ownership(payload)
             self._claimed_in_flight.discard(payload.get("key"))
-            if payload.get("owner") is None:
-                self._claim_denied_until.pop(payload.get("key"), None)
-            self._log("SYNC", "Object %r owner -> %s" % (payload["key"], payload.get("owner")))
+            owner = payload.get("owner")
+            key = payload.get("key")
+            if owner is None or owner == self.session.player_id:
+                self._claim_denied_until.pop(key, None)
+            self._log("SYNC", "Object %r owner -> %s" % (key, owner))
             self._reconcile_autonomy()
         elif message_type == "OBJECT_CLAIM_ACK":
             self.session.apply_object_claim_ack(payload)
             self._claimed_in_flight.discard(payload.get("key"))
-            self._log("SYNC", "Ownership ack for %r: owner=%s" % (payload["key"], payload.get("owner")))
+            owner = payload.get("owner")
+            key = payload.get("key")
+            if owner is None or owner == self.session.player_id:
+                self._claim_denied_until.pop(key, None)
+            self._log("SYNC", "Ownership ack for %r: owner=%s" % (key, owner))
             self._reconcile_autonomy()
         elif message_type == "INTERACTION_STATE":
             self.session.apply_interaction_state(payload)
