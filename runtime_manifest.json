@@ -1,5 +1,5 @@
 {
- "version": "2026-09-22-fdd6361",
+ "version": "2026-09-22-e6b8388",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -15,7 +15,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/commands/cheat_commands.py",
-   "sha256": "d01d33633e670447f495250d9dc551270fec8608606de1bfe10345e3a749b951"
+   "sha256": "cd8e865bf6284f564c929b9ab8b1cd38a13f87c740a58238f99967bef5948f1c"
   },
   {
    "path": "client_mod/scripts/simmp_client/config.py",
@@ -23,7 +23,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/connectivity.py",
-   "sha256": "792563dd79b6dd81d0dbd7b4c98fbc561bf3155477c38e8e07d6b4ec29ea3ccd"
+   "sha256": "8837f97d004063fcb0f951df48fde7870ed57eb2a77dc5fdddc55772fcbdc2f0"
   },
   {
    "path": "client_mod/scripts/simmp_client/hooks/__init__.py",
@@ -31,7 +31,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/hooks/game_hooks.py",
-   "sha256": "15800bd29c9c6407f62add1a0fb76b6376b9112c93b56f2e5cd11c15efefbeff"
+   "sha256": "f4f7a7f23d198dad1f48bd49a5a329d675bd1c8e6c64ecb8708a79dd9d16e973"
   },
   {
    "path": "client_mod/scripts/simmp_client/logfile.py",
@@ -135,7 +135,7 @@
   },
   {
    "path": "server/protocol/handlers.py",
-   "sha256": "4a9f51ac9e0814d2d3864e8616f126650730960a59feed21f52fd80f9596c1f5"
+   "sha256": "80f9e36fc990130c5f8bfe6ee46cfb7f606b07dfe55ff5f2fa143ea51fdd903e"
   },
   {
    "path": "server/rooms/__init__.py",
@@ -151,7 +151,7 @@
   },
   {
    "path": "server/state/session.py",
-   "sha256": "8724086b930be4a4ca5a28b75d65a0ab7b6c1384cf5eeb89634d3f12c69ffa89"
+   "sha256": "f7d54d64ef2accc139c1a51d8b14fa85fc4008df34c3f661ddf7c168a443f722"
   },
   {
    "path": "server/travel/__init__.py",
