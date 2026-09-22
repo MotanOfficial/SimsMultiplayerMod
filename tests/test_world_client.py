@@ -149,8 +149,14 @@ class WorldClientTests(unittest.TestCase):
                 alice.world_sync = True
                 alice.world_interval = 0.0
 
-                # First tick: the unowned key gets auto-claimed.
-                alice._maybe_send_world_update()
+                # First tick: the unowned key gets auto-claimed when it is the
+                # locally active sim (shared-save co-op only drives the
+                # selected sim, not the whole household).
+                with mock.patch(
+                    "simmp_client.connectivity.game_hooks.active_sim_key",
+                    return_value="sim:42",
+                ):
+                    alice._maybe_send_world_update()
                 self.assertTrue(await _wait_until(
                     lambda: (alice.process_incoming() or True)
                     and alice.session.world.get("sim:42") is not None
@@ -166,7 +172,11 @@ class WorldClientTests(unittest.TestCase):
                 )
 
                 # Second tick: ownership held, so fields are pushed to Bob.
-                alice._maybe_send_world_update()
+                with mock.patch(
+                    "simmp_client.connectivity.game_hooks.active_sim_key",
+                    return_value="sim:42",
+                ):
+                    alice._maybe_send_world_update()
                 self.assertTrue(await _wait_until(
                     lambda: (bob.process_incoming() or True)
                     and bob.session.world.get("sim:42") is not None
@@ -175,7 +185,11 @@ class WorldClientTests(unittest.TestCase):
                 ), "Bob never merged Alice's auto-synced world delta")
 
                 # A further tick still does not re-claim the owned key.
-                alice._maybe_send_world_update()
+                with mock.patch(
+                    "simmp_client.connectivity.game_hooks.active_sim_key",
+                    return_value="sim:42",
+                ):
+                    alice._maybe_send_world_update()
                 self.assertEqual(
                     sum("Requested ownership" in line for line in alice_log), 1
                 )
@@ -199,13 +213,59 @@ class WorldClientTests(unittest.TestCase):
             client._maybe_send_world_update()
         self.assertEqual(client._claimed_in_flight, set())
         self.assertIn("obj:9@1_2_3", client._last_obj_fields)
-        # A local edit (field change) should claim.
+        # Tiny float jitter must not claim.
+        samples[0] = {"key": "obj:9@1_2_3", "fields": {"x": 1.1}}
+        client._last_world_sent = 0.0
+        with mock.patch("simmp_client.connectivity.game_hooks.current_zone_running_state") as zone:
+            zone.return_value = type("Z", (), {"running": True, "zone_id": 7})()
+            client._maybe_send_world_update()
+        self.assertEqual(client._claimed_in_flight, set())
+        # A real edit (field change >= 0.5) should claim.
         samples[0] = {"key": "obj:9@1_2_3", "fields": {"x": 2.0}}
         client._last_world_sent = 0.0
         with mock.patch("simmp_client.connectivity.game_hooks.current_zone_running_state") as zone:
             zone.return_value = type("Z", (), {"running": True, "zone_id": 7})()
             client._maybe_send_world_update()
         self.assertIn("obj:9@1_2_3", client._claimed_in_flight)
+
+    def test_only_active_sim_is_auto_claimed(self):
+        """Household-wide sampling must not claim every sim to the first client."""
+        client = MultiplayerClient(client_name="Alice")
+        claims = []
+
+        class FakeEngine(object):
+            connected = True
+
+            def send_object_claim(self, key, zone_id=None):
+                claims.append(key)
+                return True
+
+            def send_object_update(self, *a, **k):
+                return True
+
+            def send_object_gone(self, *a, **k):
+                return True
+
+        client.engine = FakeEngine()
+        client.session.player_id = 1000
+        client.world_sync = True
+        client.world_interval = 0.0
+        client.set_world_sampler(
+            lambda: [
+                {"key": "sim:1", "fields": {"x": 1.0}},
+                {"key": "sim:2", "fields": {"x": 2.0}},
+            ]
+        )
+        with mock.patch(
+            "simmp_client.connectivity.game_hooks.current_zone_running_state"
+        ) as zone, mock.patch(
+            "simmp_client.connectivity.game_hooks.active_sim_key",
+            return_value="sim:2",
+        ):
+            zone.return_value = type("Z", (), {"running": True, "zone_id": 7})()
+            client._maybe_send_world_update()
+        self.assertEqual(list(client._claimed_in_flight), ["sim:2"])
+        self.assertEqual(claims, ["sim:2"])
 
 
     def test_sim_exclusive_ownership_host_drives(self):

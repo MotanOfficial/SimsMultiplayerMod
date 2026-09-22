@@ -133,6 +133,25 @@ def analyze_client_log(text, label):
         )
     elif locked:
         findings.append(("warn", "%s: OBJECT_LOCKED=%s" % (label, locked)))
+    sim_locks = _count(r"OBJECT_LOCKED: object 'sim:", text)
+    if sim_locks >= 5:
+        findings.append(
+            (
+                "fail",
+                "%s: %s sim OBJECT_LOCKED - host likely claimed the whole "
+                "household; laptop cannot drive any sim (use active-sim claim)"
+                % (label, sim_locks),
+            )
+        )
+    ownership_host = _count(r"Ownership ack for 'sim:[^']+': owner=\d+", text)
+    if "world sync health" in text and "denied" in text:
+        findings.append(
+            (
+                "warn",
+                "%s: world sync health reported denied claims - peer owns the "
+                "world this client wanted" % label,
+            )
+        )
     if alarm_spam > 100:
         findings.append(
             (

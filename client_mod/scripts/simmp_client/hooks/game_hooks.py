@@ -923,9 +923,11 @@ def _interaction_target(target_key):
 def _push_interaction(sim, affordance, target):
     """Ask `sim` to run `affordance` on `target` (None = self/no aim).
 
-    Tries the common public queue entry points in order and swallows every
-    failure so mirrored execution is always optional.
+    Clears the local queue first when possible: a peer-driven Sleep/Sit must
+    preempt whatever autonomy just queued on this machine, or the push is
+    silently ignored and the laptop "does what it wants".
     """
+    _cancel_sim_queue(sim)
     try:
         sim.queue.push_interaction(affordance, target=target)
         return True
@@ -936,7 +938,152 @@ def _push_interaction(sim, affordance, target):
         return True
     except Exception:
         pass
+    try:
+        # Some affordances take (target, context) ordering.
+        sim.push_super_affordance(affordance, target)
+        return True
+    except Exception:
+        pass
     return False
+
+
+def _cancel_sim_queue(sim):
+    """Best-effort clear of a sim's local interaction queue."""
+    queue = getattr(sim, "queue", None)
+    if queue is None:
+        return
+    try:
+        cancel_all = getattr(queue, "cancel_all", None)
+        if cancel_all is not None:
+            cancel_all()
+            return
+    except Exception:
+        pass
+    try:
+        for interaction in list(queue):
+            try:
+                cancel = getattr(interaction, "cancel_user", None)
+                if cancel is not None:
+                    cancel()
+                    continue
+            except Exception:
+                pass
+            try:
+                cancel = getattr(interaction, "cancel", None)
+                if cancel is not None:
+                    cancel()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def set_sim_autonomy(sim_info, enabled):
+    """Best-effort per-sim autonomy toggle.
+
+    Tries multiple known game APIs in order, swallowing errors so the mod
+    never breaks the game.  Returns True when any API call appeared to
+    succeed (best-effort: some APIs don't raise but also don't confirm).
+
+    Known candidates (from game decompilation / community docs):
+      - sim_info.set_autonomy_enabled(enabled)
+      - sim.get_autonomy_component().set_autonomy_enabled(enabled)
+      - autonomy_enabled attribute
+      - autonomy component disable / skip flags
+    """
+    try:
+        sim = sim_info.get_sim_instance()
+    except Exception:
+        sim = None
+    # Candidate 1: sim_info.set_autonomy_enabled (most common)
+    try:
+        setter = getattr(sim_info, "set_autonomy_enabled", None)
+        if setter is not None:
+            setter(enabled)
+            if not enabled:
+                _cancel_sim_queue(sim)
+            return True
+    except Exception:
+        pass
+    # Candidate 2: autonomy component on sim instance
+    if sim is not None:
+        try:
+            comp = getattr(sim, "get_autonomy_component", None)
+            if comp is not None:
+                ac = comp()
+                if ac is not None:
+                    setter2 = getattr(ac, "set_autonomy_enabled", None)
+                    if setter2 is not None:
+                        setter2(enabled)
+                        if not enabled:
+                            _cancel_sim_queue(sim)
+                        return True
+                    # Some builds expose enable/disable instead.
+                    if enabled:
+                        en = getattr(ac, "enable", None) or getattr(ac, "enable_autonomy", None)
+                        if en is not None:
+                            en()
+                            return True
+                    else:
+                        dis = getattr(ac, "disable", None) or getattr(ac, "disable_autonomy", None)
+                        if dis is not None:
+                            dis()
+                            _cancel_sim_queue(sim)
+                            return True
+        except Exception:
+            pass
+    # Candidate 3: sim_info.autonomy_enabled setter (attribute-based)
+    try:
+        if hasattr(sim_info, "autonomy_enabled"):
+            setattr(sim_info, "autonomy_enabled", enabled)
+            if not enabled:
+                _cancel_sim_queue(sim)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def reconcile_autonomy(remote_owner_keys, my_player_id, my_zone_id, owned_keys=None):
+    """Reconcile per-sim autonomy based on world ownership.
+
+    Walks the active household's instanced sims:
+      - owned by another player -> suppress (+ cancel local queue)
+      - owned by this player -> restore
+      - unowned -> suppress (freeze until someone selects/claims them)
+
+    Freezing unowned sims is what stops the laptop from freestyling while the
+    host still owns every sim. Returns (suppressed, restored, skipped).
+    """
+    suppressed = 0
+    restored = 0
+    skipped = 0
+    remote = set(remote_owner_keys or ())
+    owned = set(owned_keys or ())
+    for sim_info, sim in _instanced_sim_infos():
+        key = _sim_key(sim_info)
+        if key is None:
+            skipped += 1
+            continue
+        if key in owned:
+            should_suppress = False
+        elif key in remote:
+            should_suppress = True
+        else:
+            # Unclaimed household member: keep frozen on every client so
+            # autonomy cannot diverge before someone takes the wheel.
+            should_suppress = True
+        try:
+            if set_sim_autonomy(sim_info, not should_suppress):
+                if should_suppress:
+                    suppressed += 1
+                else:
+                    restored += 1
+            else:
+                skipped += 1
+        except Exception:
+            skipped += 1
+    return suppressed, restored, skipped
 
 
 def diagnose_hooks():
@@ -980,6 +1127,10 @@ def diagnose_hooks():
     for si, sim in pairs:
         lines.append("  key=%s instanced=%s" % (_sim_key(si), sim is not None))
     try:
+        lines.append("active_sim_key=%s" % (active_sim_key(),))
+    except Exception as exc:
+        lines.append("active_sim_key raised: %r" % (exc,))
+    try:
         lines.append("world_sample=%d" % len(sample_world_objects()))
     except Exception as exc:
         lines.append("world sampler raised: %r" % (exc,))
@@ -1022,12 +1173,32 @@ def _instanced_sim_infos():
         return []
 
 
+def active_sim_key():
+    """``sim:<id>`` for the currently selected/controlled sim, or None.
+
+    Shared-save co-op drives ownership off this key: each client only claims
+    the sim the local player is actively controlling, so two players can
+    split a household instead of the first arriver locking every sim.
+    """
+    try:
+        import services
+
+        sim_info = services.active_sim_info()
+    except Exception:
+        return None
+    if sim_info is None:
+        return None
+    return _sim_key(sim_info)
+
+
 def sample_world_objects():
-    """Sample the household sims' positions for world replication.
+    """Sample household sims' positions for world replication.
 
     Returns one entry per instanced sim with a stable ``sim:<id>`` key and
     position/orientation fields, or an empty list when no zone or sim is
-    available. Safe to call outside the game (returns ``[]``).
+    available. Ownership/claim filtering happens in the client: only the
+    active sim is auto-claimed; peers receive deltas for sims they own.
+    Safe to call outside the game (returns ``[]``).
     """
     entries = []
     for sim_info, sim in _instanced_sim_infos():
@@ -1473,85 +1644,3 @@ def _interaction_target_key(interaction, actor_key):
         return _object_key(target, transform)
     except Exception:
         return None
-
-
-def set_sim_autonomy(sim_info, enabled):
-    """Best-effort per-sim autonomy toggle.
-
-    Tries multiple known game APIs in order, swallowing errors so the mod
-    never breaks the game.  Returns True when any API call appeared to
-    succeed (best-effort: some APIs don't raise but also don't confirm).
-
-    Known candidates (from game decompilation / community docs):
-      - sim_info.set_autonomy_enabled(enabled)
-      - sim.get_autonomy_component().set_autonomy_enabled(enabled)
-      - autonomy_service disable/enable per sim
-    """
-    try:
-        sim = sim_info.get_sim_instance()
-    except Exception:
-        sim = None
-    # Candidate 1: sim_info.set_autonomy_enabled (most common)
-    try:
-        setter = getattr(sim_info, "set_autonomy_enabled", None)
-        if setter is not None:
-            setter(enabled)
-            return True
-    except Exception:
-        pass
-    # Candidate 2: autonomy component on sim instance
-    if sim is not None:
-        try:
-            comp = getattr(sim, "get_autonomy_component", None)
-            if comp is not None:
-                ac = comp()
-                if ac is not None:
-                    setter2 = getattr(ac, "set_autonomy_enabled", None)
-                    if setter2 is not None:
-                        setter2(enabled)
-                        return True
-        except Exception:
-            pass
-    # Candidate 3: sim_info.autonomy_enabled setter (attribute-based)
-    try:
-        attr = getattr(sim_info, "autonomy_enabled", None)
-        if attr is not None:
-            setattr(sim_info, "autonomy_enabled", enabled)
-            return True
-    except Exception:
-        pass
-    return False
-
-
-def reconcile_autonomy(remote_owner_keys, my_player_id, my_zone_id):
-    """Reconcile per-sim autonomy based on world ownership.
-
-    Walks the active household's instanced sims; for each sim whose
-    ``sim:<id>`` key is owned by another player in the world mirror,
-    autonomy is suppressed; for self-owned or unowned sims, autonomy is
-    restored.
-
-    Returns (suppressed, restored, skipped) counts for diagnostics.
-    ``remote_owner_keys`` is a set of ``sim:<id>`` strings that are
-    currently owned by another player.
-    """
-    suppressed = 0
-    restored = 0
-    skipped = 0
-    for sim_info, sim in _instanced_sim_infos():
-        key = _sim_key(sim_info)
-        if key is None:
-            skipped += 1
-            continue
-        should_suppress = key in remote_owner_keys
-        try:
-            if set_sim_autonomy(sim_info, not should_suppress):
-                if should_suppress:
-                    suppressed += 1
-                else:
-                    restored += 1
-            else:
-                skipped += 1
-        except Exception:
-            skipped += 1
-    return suppressed, restored, skipped

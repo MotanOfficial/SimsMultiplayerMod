@@ -120,6 +120,12 @@ class MultiplayerClient:
         # OBJECT_LOCKED spam.
         self._last_obj_fields = {}
         self._alarm_start_logged = False
+        # The sim this client is currently driving (active/selected). Only this
+        # key is auto-claimed; switching releases previously driven sims so a
+        # peer can take them.
+        self._driven_sim_key = None
+        self._last_autonomy_log_at = 0.0
+        self._last_autonomy_summary = None
 
     def set_presence_sampler(self, sampler):
         """sampler() -> (zone_id, lot_id) or None. Called on the game thread."""
@@ -1191,11 +1197,12 @@ class MultiplayerClient:
         self._reconcile_autonomy(remote_owner_keys)
 
     def _reconcile_autonomy(self, remote_owner_keys=None):
-        """Toggle local autonomy off for sims owned by other players.
+        """Toggle local autonomy off for sims we do not own.
 
         Best-effort and game-thread only; never raises. Refreshes on every
         world sync and every ownership change so a released sim regains its
-        autonomy immediately.
+        autonomy immediately. Unowned household sims stay frozen so the
+        laptop cannot freestyle while waiting to claim its active sim.
         """
         if not self.autonomy_suppression or self._autonomy_reconciler is None:
             return
@@ -1203,21 +1210,45 @@ class MultiplayerClient:
             return
         mine = self.session.player_id
         zone_id = self.zone_ready_id
-        remote_keys = remote_owner_keys
-        if remote_keys is None:
-            remote_keys = set()
-            for key in self.session.world.keys():
-                mirror = self.session.world.get(key)
-                if mirror is None:
-                    continue
-                owner = mirror.owner
-                if owner is None or mirror.exclusively_owned_by(mine):
-                    continue
+        owned_keys = set()
+        remote_keys = set()
+        for key in self.session.world.keys():
+            if not isinstance(key, str) or not key.startswith("sim:"):
+                continue
+            mirror = self.session.world.get(key)
+            if mirror is None:
+                continue
+            owner = mirror.owner
+            if owner is None:
+                continue
+            if mirror.is_owned_by(mine):
+                owned_keys.add(key)
+            else:
                 remote_keys.add(key)
+        if remote_owner_keys is not None:
+            remote_keys |= set(remote_owner_keys)
         try:
-            self._autonomy_reconciler(remote_keys, mine, zone_id)
+            result = self._autonomy_reconciler(remote_keys, mine, zone_id, owned_keys)
+        except TypeError:
+            # Older reconciler signature without owned_keys.
+            try:
+                result = self._autonomy_reconciler(remote_keys, mine, zone_id)
+            except Exception:
+                return
         except Exception:
-            pass
+            return
+        now = time.time()
+        summary = None
+        if isinstance(result, (tuple, list)) and len(result) >= 3:
+            summary = "autonomy suppressed=%s restored=%s skipped=%s owned=%s remote=%s" % (
+                result[0], result[1], result[2], len(owned_keys), len(remote_keys),
+            )
+        if summary and (
+            summary != self._last_autonomy_summary or now - self._last_autonomy_log_at >= 30.0
+        ):
+            self._last_autonomy_summary = summary
+            self._last_autonomy_log_at = now
+            self._log("SYNC", summary)
 
     def _notify_remote_interactions(self):
         """Hand remote-owned interaction entries to the game-side applier.
@@ -1308,6 +1339,22 @@ class MultiplayerClient:
         mine = self.session.player_id
         updates = []
         now = time.time()
+        active_sim = None
+        try:
+            active_sim = game_hooks.active_sim_key()
+        except Exception:
+            active_sim = None
+        if active_sim != self._driven_sim_key:
+            previous = self._driven_sim_key
+            self._driven_sim_key = active_sim
+            # Release sims we no longer control so a peer can claim them.
+            if previous and previous != active_sim:
+                mirror = self.session.world.get(previous)
+                if mirror is not None and mirror.is_owned_by(mine):
+                    self.release_object(previous)
+                    self._log("SYNC", "Released previous active sim %r" % previous)
+            if active_sim:
+                self._log("SYNC", "Driving active sim %r" % active_sim)
         for entry in present.values():
             key = entry.get("key")
             if not isinstance(key, str) or not key:
@@ -1315,12 +1362,9 @@ class MultiplayerClient:
             fields = entry.get("fields", {}) or {}
             mirror = self.session.world.get(key)
             if mirror is None or not mirror.is_owned_by(mine):
-                # Not owned on this session yet (or no longer shared with us).
-                # Sims auto-claim so each player drives their household.
-                # Lot objects (`obj:`) only claim when the local sample
-                # changed - otherwise the first client to load steals the
-                # whole lot and the peer never gets a turn.
-                if not self._should_auto_claim(key, fields, mirror):
+                # Sims: only auto-claim the locally selected/active sim.
+                # Lot objects: only claim on a significant local edit.
+                if not self._should_auto_claim(key, fields, mirror, active_sim=active_sim):
                     continue
                 if key not in self._claimed_in_flight and now >= self._claim_denied_until.get(key, 0):
                     self._claimed_in_flight.add(key)
@@ -1341,20 +1385,43 @@ class MultiplayerClient:
             if sent_all:
                 self._last_world_sent = now
 
-    def _should_auto_claim(self, key, fields, mirror):
+    def _should_auto_claim(self, key, fields, mirror, active_sim=None):
         """Whether an unowned sampled key should be claimed this tick."""
         if key.startswith("sim:"):
-            return True
+            # Shared-save co-op: only the locally selected sim is claimed.
+            # Claiming the whole household made the first client lock every
+            # sim and left the peer with permanent OBJECT_LOCKED + freestyle
+            # autonomy on a mirror it could never drive.
+            return bool(active_sim) and key == active_sim
         if key.startswith("obj:"):
             prev = self._last_obj_fields.get(key)
             snapshot = dict(fields) if isinstance(fields, dict) else {}
             self._last_obj_fields[key] = snapshot
             if prev is None:
-                # First sight of this lot object: remember it, do not claim.
                 return False
-            return prev != snapshot
+            return self._obj_fields_changed_significantly(prev, snapshot)
         # Legacy / test keys (e.g. "sofa") keep the old auto-claim behaviour.
         return True
+
+    def _obj_fields_changed_significantly(self, prev, current):
+        """True when a lot-object sample moved/rotated enough to mean an edit.
+
+        Float jitter from the sampler must not trigger a claim war.
+        """
+        if not isinstance(prev, dict) or not isinstance(current, dict):
+            return prev != current
+        keys = set(prev) | set(current)
+        for key in keys:
+            a = prev.get(key)
+            b = current.get(key)
+            if a == b:
+                continue
+            if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+                if abs(float(a) - float(b)) >= 0.5:
+                    return True
+                continue
+            return True
+        return False
 
     def _send_object_gone(self, key):
         if self.engine is None or not self.engine.connected:
@@ -1491,8 +1558,20 @@ class MultiplayerClient:
             if entry is not None and entry["player_id"] == mine and key not in active:
                 self.end_interaction(key)
         for key, entry in active.items():
-            mirror = self.session.interactions.get(key)
-            if mirror is not None:
+            held = self.session.interactions.get(key)
+            if held is not None:
+                continue
+            # Only propose interactions for keys that are not owned by another
+            # player. Local autonomy on a peer-owned sim flooded BUSY/COOLDOWN
+            # and fought the mirrored action (Sleep on host, walk on laptop).
+            # Keys without a world mirror yet are still proposed - the server
+            # decides ownership from there.
+            world = self.session.world.get(key)
+            if (
+                world is not None
+                and world.owner is not None
+                and not world.is_owned_by(mine)
+            ):
                 continue
             if now < self._denied_until.get(key, 0):
                 continue
