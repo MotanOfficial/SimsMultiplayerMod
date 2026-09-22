@@ -20,10 +20,20 @@ import shutil
 import sys
 import zipfile
 
-PROJECT_ROOT = pathlib.Path(
-    getattr(sys, "_MEIPASS", None)
-    or pathlib.Path(__file__).resolve().parent.parent
-)
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
+# Frozen one-file builds extract under sys._MEIPASS. Only use that tree when
+# *this* module was loaded from the bundle. If the updater mounted a newer
+# runtime copy, `__file__` already points at that tree and we must install
+# from there - otherwise "Install mod" keeps redeploying the stale Scripts
+# baked into the .exe (field failure: Mods stayed M25 while runtime was M29).
+if getattr(sys, "_MEIPASS", None):
+    _meipass = pathlib.Path(sys._MEIPASS)
+    try:
+        pathlib.Path(__file__).resolve().relative_to(_meipass)
+    except ValueError:
+        pass
+    else:
+        PROJECT_ROOT = _meipass
 SCRIPTS_DIR = PROJECT_ROOT / "client_mod" / "scripts"
 PROTOCOL_DIR = PROJECT_ROOT / "protocol" / "simmp"
 BUILD_DIR = PROJECT_ROOT / "client_mod" / "build"
