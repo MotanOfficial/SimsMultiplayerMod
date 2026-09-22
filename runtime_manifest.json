@@ -1,9 +1,9 @@
 {
- "version": "2026-09-22-2ac92b7",
+ "version": "2026-09-22-fdd6361",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
-   "sha256": "c16421f25f27d7aa80ba15a771e945eb730b194134fbb4512e3a4e98811e2d71"
+   "sha256": "d93d3586c910e0ae00e82d46e109094d3ead5789b874acc27dcb0ed61d2fd29b"
   },
   {
    "path": "client_mod/scripts/simmp_client/__init__.py",
