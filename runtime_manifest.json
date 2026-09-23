@@ -1,5 +1,5 @@
 {
- "version": "2026-09-22-e6b8388",
+ "version": "2026-09-23-e03a012",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -23,7 +23,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/connectivity.py",
-   "sha256": "8837f97d004063fcb0f951df48fde7870ed57eb2a77dc5fdddc55772fcbdc2f0"
+   "sha256": "890dba8040e8430459e9ca37dceaed74eebd322337107f3b2ed79420740ba5b0"
   },
   {
    "path": "client_mod/scripts/simmp_client/hooks/__init__.py",
@@ -135,7 +135,7 @@
   },
   {
    "path": "server/protocol/handlers.py",
-   "sha256": "80f9e36fc990130c5f8bfe6ee46cfb7f606b07dfe55ff5f2fa143ea51fdd903e"
+   "sha256": "4a9f51ac9e0814d2d3864e8616f126650730960a59feed21f52fd80f9596c1f5"
   },
   {
    "path": "server/rooms/__init__.py",
@@ -151,7 +151,7 @@
   },
   {
    "path": "server/state/session.py",
-   "sha256": "f7d54d64ef2accc139c1a51d8b14fa85fc4008df34c3f661ddf7c168a443f722"
+   "sha256": "f106af4c064bd6131f535d3016bdb455f7f29be4412e10d44ac03e6d3df3908e"
   },
   {
    "path": "server/travel/__init__.py",
