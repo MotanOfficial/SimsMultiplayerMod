@@ -137,9 +137,10 @@ def analyze_client_log(text, label):
     if sim_locks >= 5:
         findings.append(
             (
-                "warn",
-                "%s: %s sim OBJECT_LOCKED (legacy exclusive claim) - rebuild "
-                "with last-select-wins sim transfer if this build is old"
+                "fail",
+                "%s: %s sim OBJECT_LOCKED - both clients selected the same "
+                "sim; host keeps it, laptop must pick a different household "
+                "member (mirrors the host's)"
                 % (label, sim_locks),
             )
         )
@@ -155,6 +156,15 @@ def analyze_client_log(text, label):
         )
     elif mirror_lines:
         findings.append(("ok", "%s: [MP][MIRROR]=%s" % (label, mirror_lines)))
+    owner_flips = _count(r"Object 'sim:[^']+' owner ->", text)
+    if owner_flips >= 20:
+        findings.append(
+            (
+                "fail",
+                "%s: sim ownership flipped %s times - claim war (both "
+                "driving the same sim)" % (label, owner_flips),
+            )
+        )
     ownership_host = _count(r"Ownership ack for 'sim:[^']+': owner=\d+", text)
     if "world sync health" in text and "denied" in text:
         findings.append(

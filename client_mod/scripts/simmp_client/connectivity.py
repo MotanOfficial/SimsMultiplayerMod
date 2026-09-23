@@ -1367,6 +1367,14 @@ class MultiplayerClient:
                 continue
             fields = entry.get("fields", {}) or {}
             mirror = self.session.world.get(key)
+            # Peer already owns this key: never auto-claim (avoids OBJECT_LOCKED
+            # spam and the old steal war). Mirror their deltas/interactions.
+            if (
+                mirror is not None
+                and mirror.owner is not None
+                and not mirror.is_owned_by(mine)
+            ):
+                continue
             if mirror is None or not mirror.is_owned_by(mine):
                 # Sims: only auto-claim the locally selected/active sim.
                 # Lot objects: only claim on a significant local edit.

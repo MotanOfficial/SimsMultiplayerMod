@@ -355,23 +355,13 @@ class Handlers:
                 )
             )
             return
-        if prev_owner is not None and prev_owner != conn.player_id:
-            server.logger.info(
-                "[MP][SYNC] Player %s took sim %r from player %s in room %s zone %s",
-                conn.player_id,
-                key,
-                prev_owner,
-                room_id,
-                zone_id,
-            )
-        else:
-            server.logger.info(
-                "[MP][SYNC] Player %s claimed object %r in room %s zone %s",
-                conn.player_id,
-                key,
-                room_id,
-                zone_id,
-            )
+        server.logger.info(
+            "[MP][SYNC] Player %s claimed object %r in room %s zone %s",
+            conn.player_id,
+            key,
+            room_id,
+            zone_id,
+        )
         obj = server.session.get_world_object(room_id, key, zone_id)
         await conn.send(
             msg.make_object_claim_ack(
