@@ -1,5 +1,5 @@
 {
- "version": "2026-09-23-e03a012",
+ "version": "2026-09-23-bd60fbc",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -183,7 +183,7 @@
   },
   {
    "path": "tools/launcher_setup.py",
-   "sha256": "eb111b807665e29ccb39519736366e38b91e102bcc170c95167a8628efd0f274"
+   "sha256": "cf56b1242df4ee6174d929ad6d86c33afcfea0b1a018bcd52ad0b5a6d9ebe870"
   },
   {
    "path": "tools/launcher_ui/Main.qml",
@@ -228,6 +228,10 @@
   {
    "path": "tools/save_sync.py",
    "sha256": "ee03d2ca778401f9999968a8f7b0355924ae1e8f9a2341f89b15bfa6cdeae1c7"
+  },
+  {
+   "path": "tools/updater.py",
+   "sha256": "aea0a3fa169a01d6ad1ff5025108c769fd7e490018a38764766155a4acd318f4"
   }
  ]
 }
