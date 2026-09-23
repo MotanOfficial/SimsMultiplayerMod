@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import tempfile
+import types
 import unittest
 
 from tools import updater
@@ -10,10 +11,12 @@ from tools.updater import (
     apply_changes,
     changed_mod_files,
     fetch_manifest,
+    file_ref,
     installed_version,
     load_local_manifest,
     mount_runtime,
     plan_update,
+    prefer_synced,
     sync,
     validate_manifest,
 )
@@ -87,6 +90,29 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(len(plan_update(remote, None)), 2)
 
 
+class FileRefTests(unittest.TestCase):
+    def test_parses_short_sha_from_manifest_version(self):
+        self.assertEqual(file_ref("2026-09-23-e03a012"), "e03a012")
+        self.assertEqual(file_ref("2026-01-02-ABCDEF0"), "ABCDEF0")
+
+    def test_falls_back_to_branch_for_unrecognized_versions(self):
+        bad_versions = (
+            None,
+            "",
+            "v1",
+            "v-a",
+            "nightly",
+            "2026-09-23-unknown",
+            "2026-09-23-xyz",
+            "20260923-e03a012",
+            "2026-9-3-e03a012",
+            "2026-09-23-0",
+            "2026-09-23-" + "a" * 41,
+        )
+        for bad in bad_versions:
+            self.assertEqual(file_ref(bad), updater.REF, repr(bad))
+
+
 class ApplyTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="simmp_updater_")
@@ -123,6 +149,50 @@ class ApplyTests(unittest.TestCase):
         )
         self.assertFalse(ok)
         self.assertTrue(any("download failed" in e for e in errors))
+
+    def test_apply_changes_prefers_immutable_ref_over_branch(self):
+        payload = b"hello\n"
+        calls = []
+
+        def fetcher(url, timeout):
+            calls.append(url)
+            if "/deadbee/" in url:
+                return payload
+            return b"stale-bytes-from-branch"
+
+        ok, errors = apply_changes(
+            updater.base_url("deadbee"),
+            self.tmp,
+            [("tools/a.py", _sha(payload))],
+            fetcher=fetcher,
+            fallback_base=updater.base_url(),
+        )
+        self.assertTrue(ok)
+        self.assertEqual(errors, [])
+        self.assertTrue(calls)
+        self.assertTrue(all("/deadbee/" in url for url in calls))
+        with open(os.path.join(self.tmp, "tools", "a.py"), "rb") as handle:
+            self.assertEqual(handle.read(), payload)
+
+    def test_apply_changes_falls_back_to_branch_when_sha_unavailable(self):
+        payload = b"hello\n"
+
+        def fetcher(url, timeout):
+            if "/deadbee/" in url:
+                return None
+            return payload
+
+        ok, errors = apply_changes(
+            updater.base_url("deadbee"),
+            self.tmp,
+            [("tools/a.py", _sha(payload))],
+            fetcher=fetcher,
+            fallback_base=updater.base_url(),
+        )
+        self.assertTrue(ok)
+        self.assertEqual(errors, [])
+        with open(os.path.join(self.tmp, "tools", "a.py"), "rb") as handle:
+            self.assertEqual(handle.read(), payload)
 
 
 class SyncTests(unittest.TestCase):
@@ -207,6 +277,18 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(installed_version(self.tmp), "v9")
         self.assertTrue(updater.has_runtime(self.tmp))
 
+    def test_sync_pins_file_downloads_to_manifest_sha(self):
+        files = self._tree()
+        manifest = _manifest("2026-09-23-deadbee", [(p, _sha(d)) for p, d in files.items()])
+        store = FakeStore(manifest, files)
+        res = sync(updater.base_url(), self.tmp, fetcher=store.__call__)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["version"], "2026-09-23-deadbee")
+        file_calls = [u for u in store.calls if not u.endswith(updater.MANIFEST_PATH)]
+        self.assertTrue(file_calls)
+        for url in file_calls:
+            self.assertIn("/deadbee/", url)
+
 
 class MountTests(unittest.TestCase):
     """End-to-end: the runtime finder makes imports resolve from the synced
@@ -279,6 +361,42 @@ class ChangeTrackingTests(unittest.TestCase):
     def test_changed_mod_files(self):
         self.assertTrue(changed_mod_files(["client_mod/scripts/simmp_client/cc.py"]))
         self.assertFalse(changed_mod_files(["server/main.py", "tools/lobby.py"]))
+
+
+class PreferSyncedTests(unittest.TestCase):
+    def _module(self, path):
+        mod = types.ModuleType("tools.updater")
+        mod.__file__ = path
+        return mod
+
+    def test_returns_imported_copy_under_code_root(self):
+        root = tempfile.mkdtemp(prefix="simmp_psync_")
+        self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
+        synced = self._module(os.path.join(root, "tools", "updater.py"))
+        got = prefer_synced(self._module("frozen"), root, importer=lambda name: synced)
+        self.assertIs(got, synced)
+
+    def test_returns_original_when_elsewhere_or_import_fails(self):
+        base = tempfile.mkdtemp(prefix="simmp_psync_")
+        self.addCleanup(lambda: __import__("shutil").rmtree(base, ignore_errors=True))
+        root = os.path.join(base, "runtime")
+        os.makedirs(root)
+        elsewhere = self._module(os.path.join(base, "other", "updater.py"))
+        original = self._module("frozen")
+        self.assertIs(prefer_synced(original, root, importer=lambda name: elsewhere), original)
+
+        def boom(name):
+            raise ImportError(name)
+
+        self.assertIs(prefer_synced(original, root, importer=boom), original)
+
+    def test_default_importer_resolves_module_name(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(updater.__file__)))
+        self.assertIs(prefer_synced(updater, repo_root), updater)
+        self.assertIs(
+            prefer_synced(updater, os.path.join(repo_root, "no-such-runtime")),
+            updater,
+        )
 
 
 if __name__ == "__main__":

@@ -10,9 +10,12 @@ Writes `runtime_manifest.json` at the repo root listing every runtime file
 push that file (plus the code changes), and every launcher with auto-update
 pulls just the changed files on next start.
 
-The manifest intentionally excludes the launcher .exe and launcher.py itself:
-the .exe is the stable bootstrap, so re-transferring it is only ever needed
-when the bootstrap code itself changes.
+The manifest intentionally excludes the launcher .exe, ``launcher.py``,
+``build_app.py`` and ``dev_console.py``: the .exe is the stable bootstrap,
+so re-transferring it is only ever needed when the bootstrap code itself
+changes. ``tools/updater.py`` IS included - ``launcher_setup`` re-binds it
+after the runtime mount (``updater.prefer_synced``), so sync-logic fixes
+ship as small files instead of a new .exe.
 """
 
 import argparse
@@ -39,6 +42,7 @@ RUNTIME_PATHS = [
     ("tools/launcher_diag.py", False),
     ("tools/launcher_lobby.py", False),
     ("tools/launcher_setup.py", False),
+    ("tools/updater.py", False),
     ("tools/save_metadata.py", False),
     ("tools/save_sync.py", False),
     ("tools/launcher_ui", True),

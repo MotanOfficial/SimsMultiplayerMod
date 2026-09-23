@@ -227,9 +227,10 @@ To ship an update:
    folder if any `client_mod/` file changed, and asks for one restart to
    mount the new runtime.
 
-Only rebuild the .exe when `tools/launcher.py`, `tools/updater.py`,
-`tools/build_app.py` or `tools/dev_console.py` change - that is the one
-artifact the other PC still transfers once.
+Only rebuild the .exe when `tools/launcher.py`, `tools/build_app.py` or
+`tools/dev_console.py` change - that is the one artifact the other PC still
+transfers once. (`tools/updater.py` ships in the manifest; `launcher_setup`
+re-binds it after the runtime mount, so sync fixes need no new .exe.)
 
 ## Launcher (give it to another PC)
 

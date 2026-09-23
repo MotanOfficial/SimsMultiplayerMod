@@ -1,5 +1,6 @@
 """LauncherBridge mixin: setup paths, mod install, update checks, save listing."""
 
+import importlib
 import os
 import sys
 import threading
@@ -9,6 +10,18 @@ from PySide6.QtWidgets import QFileDialog
 
 from launcher_common import CODE_ROOT, GREEN, MUTED, RED, ROOT, RUNTIME, RUNTIME_DIR
 from launcher_common import updater
+
+# launcher_common binds updater before mount_runtime runs, so the frozen
+# bootstrap wins that import. The manifest ships tools/updater.py too and
+# the mount has already routed it, so prefer the synced copy this session.
+try:
+    _synced_updater = importlib.import_module("tools.updater")
+except Exception:  # noqa: BLE001 - fall back to the bootstrap copy
+    _synced_updater = None
+if _synced_updater is not None and os.path.normcase(
+    str(getattr(_synced_updater, "__file__", "") or "")
+).startswith(os.path.normcase(CODE_ROOT)):
+    updater = _synced_updater
 
 
 class SetupMixin(object):

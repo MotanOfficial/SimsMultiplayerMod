@@ -16,10 +16,15 @@ Flow::
         store the applied manifest as ``version.json``
 
     mount_runtime(code_root)
-        for a frozen (PyInstaller) build, insert a meta-path finder ahead of
+        For a frozen (PyInstaller) build, insert a meta-path finder ahead of
         ``FrozenImporter`` so every synced module name imports from the
         runtime tree on disk - not the frozen copies - while every other
         name (stdlib, UI, the launcher itself) still resolves normally.
+
+``tools/updater.py`` itself is listed in the manifest: ``launcher_common``
+imports it before the mount (so the frozen bootstrap wins that race), and
+``launcher_setup`` re-binds to the synced copy afterwards via
+``prefer_synced`` - sync-logic fixes ship as small files, never a new .exe.
 
 Everything is pure stdlib (`urllib`, `hashlib`, `json`, `importlib`) and the
 network calls go through a pluggable ``fetcher`` so the whole module is
@@ -63,6 +68,57 @@ def runtime_data_root():
 
 def base_url(ref=REF):
     return "https://raw.githubusercontent.com/%s/%s/%s/" % (OWNER, REPO, ref)
+
+
+def file_ref(version, fallback=REF):
+    """Commit-ish for immutable per-file fetches, parsed from ``manifest.version``.
+
+    ``make_manifest`` stamps versions as ``<YYYY-MM-DD>-<git short sha>``.
+    raw.githubusercontent.com edge-caches branch URLs (``max-age=300``), so
+    a sync racing a push can download pre-push bytes and fail the manifest
+    checksum; pinning file downloads to the manifest's sha makes the bytes
+    immutable. Unrecognizable versions fall back to ``fallback`` (branch).
+    """
+    if isinstance(version, str) and len(version) >= 18 and version[4] == "-" and version[7] == "-":
+        sha = version[11:]
+        if 7 <= len(sha) <= 40 and all(c in "0123456789abcdefABCDEF" for c in sha):
+            return sha
+    return fallback
+
+
+def _ref_base(base, ref):
+    """``base`` with its trailing ``<ref>/`` segment swapped for ``ref``.
+
+    Bases that do not point at this repo's raw GitHub layout are returned
+    unchanged; callers treat "no swap" as "no pinning".
+    """
+    prefix = "https://raw.githubusercontent.com/%s/%s/" % (OWNER, REPO)
+    if not base.startswith(prefix):
+        return base
+    rest = base[len(prefix):]
+    _, sep, tail = rest.partition("/")
+    return prefix + ref + ("/" + tail if sep else "/")
+
+
+def prefer_synced(module, code_root, importer=None):
+    """The runtime-mounted copy of ``module`` when one lives under ``code_root``.
+
+    ``launcher_common`` imports ``tools.updater`` before ``mount_runtime``
+    runs, so the frozen bootstrap wins that race; once the manifest ships
+    ``tools/updater.py``, callers re-bind with this after the mount to run
+    the synced copy for the rest of the session. Returns ``module``
+    unchanged when the synced copy is absent or the import fails.
+    """
+    if importer is None:
+        importer = importlib.import_module
+    try:
+        synced = importer(module.__name__)
+    except Exception:  # noqa: BLE001
+        return module
+    path = str(getattr(synced, "__file__", "") or "")
+    if os.path.normcase(path).startswith(os.path.normcase(str(code_root))):
+        return synced
+    return module
 
 
 def fetch_text(url, timeout=8.0, fetcher=None):
@@ -174,22 +230,42 @@ def _write_atomic(target, data):
     os.replace(tmp, target)
 
 
-def apply_changes(base, code_root, changes, fetcher=None, log=None):
-    """Download and verify only the changed files; return (ok, errors)."""
+def apply_changes(base, code_root, changes, fetcher=None, log=None, fallback_base=None):
+    """Download and verify only the changed files; return (ok, errors).
+
+    ``base`` should be a sha-pinned raw URL prefix (see ``file_ref``) when
+    the manifest carries one: branch URLs are edge-cached for minutes after
+    a push, and a sync racing that window downloads stale bytes that fail
+    the manifest checksum. ``fallback_base`` (the branch) is tried whenever
+    ``base`` cannot produce a verified copy - a commit GitHub has not
+    indexed yet, or a manifest without a parseable sha (then it equals
+    ``base`` and is skipped).
+    """
     log = log or (lambda *_: None)
     errors = []
     for path, digest in changes:
-        url = base + path
+        bases = [base]
+        if fallback_base and fallback_base != base:
+            bases.append(fallback_base)
         payload = None
-        for _ in range(2):  # one retry for transient Github blips
-            payload = fetch_bytes(url, fetcher=fetcher)
-            if payload is not None:
+        saw_mismatch = False
+        for candidate in bases:
+            payload = None
+            for _ in range(2):  # one retry for transient Github blips
+                payload = fetch_bytes(candidate + path, fetcher=fetcher)
+                if payload is not None:
+                    break
+            if payload is None:
+                continue
+            if _sha256(payload) == digest:
                 break
+            saw_mismatch = True
+            payload = None
         if payload is None:
-            errors.append("download failed: %s" % path)
-            continue
-        if _sha256(payload) != digest:
-            errors.append("checksum mismatch: %s" % path)
+            if saw_mismatch:
+                errors.append("checksum mismatch: %s" % path)
+            else:
+                errors.append("download failed: %s" % path)
             continue
         _write_atomic(os.path.join(code_root, path), payload)
         log("updated %s" % path)
@@ -219,7 +295,14 @@ def sync(base, code_root, fetcher=None, log=None):
         if local is None or local.get("version") != remote["version"]:
             write_local_manifest(code_root, remote)
         return {"ok": True, "error": None, "version": remote["version"], "changed": []}
-    ok, errors = apply_changes(base, code_root, changes, fetcher=fetcher, log=log)
+    ok, errors = apply_changes(
+        _ref_base(base, file_ref(remote.get("version"))),
+        code_root,
+        changes,
+        fetcher=fetcher,
+        log=log,
+        fallback_base=base,
+    )
     summary = {
         "ok": ok,
         "error": "; ".join(errors) if errors else None,
