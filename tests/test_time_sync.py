@@ -237,18 +237,87 @@ class TimeServerFlowTests(unittest.TestCase):
         async def flow(server, port):
             alice = await self._hello(port, "Alice")
             await self._last_sync(alice)
+            self.assertEqual(server.session.min_players, 2)
             self.assertFalse(server.session.clock_gate_open("lobby"))
             self.assertTrue(server.session.clock_snapshot("lobby")["gate"])
 
             await alice.send(msg.make_time_ready(100))
             sync = await self._last_sync(alice)
-            self.assertEqual(sync["payload"]["speed"], 1)
-            self.assertTrue(server.session.clock_gate_open("lobby"))
+            # Solo TIME_READY must NOT open the gate when min_players=2.
+            self.assertEqual(sync["payload"]["speed"], 0)
+            self.assertFalse(server.session.clock_gate_open("lobby"))
             snapshot = server.session.clock_snapshot("lobby")
-            self.assertFalse(snapshot["gate"])
+            self.assertTrue(snapshot["gate"])
             self.assertEqual(snapshot["ready"], [1000], "Alice is player 1000")
 
             await alice.close()
+
+        self.run_flow(_time_server(flow))
+
+    def test_lobby_clients_do_not_block_clock_gate(self):
+        from server.state.session import Session
+
+        session = Session(min_players=2)
+
+        class _Conn(object):
+            pass
+
+        lobby = session.create_player(_Conn(), "LobbyGUI")
+        lobby.is_lobby = True
+        lobby.room_id = "lobby"
+        a = session.create_player(_Conn(), "Alice")
+        a.room_id = "lobby"
+        a.clock_ready = True
+        b = session.create_player(_Conn(), "Bob")
+        b.room_id = "lobby"
+        b.clock_ready = True
+        room = session.get_or_create_room("lobby")
+        for player in (lobby, a, b):
+            room.members[player.player_id] = player
+        self.assertTrue(session.clock_gate_open("lobby"))
+        self.assertEqual(
+            [p.name for p in session._room_participants("lobby")],
+            ["Alice", "Bob"],
+        )
+
+    def test_solo_ready_opens_gate_when_min_players_one(self):
+        async def flow(server, port):
+            alice = await self._hello(port, "Alice")
+            await self._last_sync(alice)
+            await alice.send(msg.make_time_ready(100))
+            sync = await self._last_sync(alice)
+            self.assertEqual(sync["payload"]["speed"], 1)
+            self.assertTrue(server.session.clock_gate_open("lobby"))
+            self.assertFalse(server.session.clock_snapshot("lobby")["gate"])
+            await alice.close()
+
+        server = MPServer("127.0.0.1", 0, min_players=1)
+        self.run_flow(_time_server(flow, server))
+
+    def test_gate_opens_when_second_player_connects_and_ready(self):
+        async def flow(server, port):
+            alice = await self._hello(port, "Alice")
+            await self._last_sync(alice)
+            await alice.send(msg.make_time_ready(100))
+            sync = await self._last_sync(alice)
+            self.assertEqual(sync["payload"]["speed"], 0, "solo ready keeps gate closed")
+            self.assertFalse(server.session.clock_gate_open("lobby"))
+
+            bob = await self._hello(port, "Bob")
+            await self._last_sync(bob)
+            await self._last_sync(alice)
+            self.assertFalse(server.session.clock_gate_open("lobby"), "Bob not ready yet")
+
+            await bob.send(msg.make_time_ready(100))
+            a_sync = await self._last_sync(alice)
+            b_sync = await self._last_sync(bob)
+            self.assertEqual(a_sync["payload"]["speed"], 1)
+            self.assertEqual(b_sync["payload"]["speed"], 1)
+            self.assertTrue(server.session.clock_gate_open("lobby"))
+            self.assertFalse(server.session.clock_snapshot("lobby")["gate"])
+
+            await alice.close()
+            await bob.close()
 
         self.run_flow(_time_server(flow))
 
@@ -362,6 +431,13 @@ class TimeClientTickTests(unittest.TestCase):
         self.assertTrue(client._players_short())
         client.min_players = 1
         self.assertFalse(client._players_short())
+        # Lobby GUI seats do not count toward min_players.
+        client.min_players = 2
+        client.session.room_players = {
+            1: {"connected": True},
+            2: {"connected": True, "lobby": True},
+        }
+        self.assertTrue(client._players_short())
 
     def test_alone_holds_paused_until_peer_connects(self):
         # Regression: the first player to load into a co-op session must not
@@ -369,6 +445,35 @@ class TimeClientTickTests(unittest.TestCase):
         client = self._client()
         client.min_players = 2
         client.session.room_players = {1000: {"connected": True}}
+        with self._zone_state(100), mock.patch(
+            "simmp_client.connectivity.game_hooks.get_clock_speed", return_value=1
+        ), mock.patch(
+            "simmp_client.connectivity.game_hooks.set_clock_speed", return_value=0
+        ) as setter:
+            client._maybe_sync_clock()
+        setter.assert_called_once_with(0)
+
+    def test_players_short_pauses_every_tick_inside_clock_interval(self):
+        # Regression from field logs: clock_interval (1.5s) used to throttle
+        # re-pause, so the game could play while waiting for a peer.
+        client = self._client()
+        client.min_players = 2
+        client.session.room_players = {1000: {"connected": True}}
+        client._last_clock_tick = time.time() + 999  # inside throttle window
+        with self._zone_state(100), mock.patch(
+            "simmp_client.connectivity.game_hooks.get_clock_speed", return_value=1
+        ), mock.patch(
+            "simmp_client.connectivity.game_hooks.set_clock_speed", return_value=0
+        ) as setter:
+            client._maybe_sync_clock()
+            client._maybe_sync_clock()
+        self.assertEqual(setter.call_count, 2)
+        setter.assert_called_with(0)
+
+    def test_disconnected_zone_running_force_pauses(self):
+        client = MultiplayerClient(client_name="Alice")
+        client.min_players = 2
+        client.engine = mock.Mock(connected=False)
         with self._zone_state(100), mock.patch(
             "simmp_client.connectivity.game_hooks.get_clock_speed", return_value=1
         ), mock.patch(
@@ -403,6 +508,7 @@ class TimeClientTickTests(unittest.TestCase):
 class TimeClientHandlerTests(unittest.TestCase):
     def test_time_sync_opens_gate_and_applies_speed(self):
         client = MultiplayerClient(client_name="Alice")
+        client.min_players = 1
         with mock.patch("simmp_client.connectivity.game_hooks.set_clock_speed", return_value=1) as setter:
             client._handle_message(msg.make_time_sync(1, ticks=42))
         self.assertFalse(client.time_gate)
@@ -418,9 +524,13 @@ class TimeClientHandlerTests(unittest.TestCase):
         client.session.room_players = {1000: {"connected": True}}
         with mock.patch("simmp_client.connectivity.game_hooks.set_clock_speed", return_value=0) as setter:
             client._handle_message(msg.make_time_sync(1, ticks=42))
+            # Coop-hold must also block any later apply of speed>0.
+            client._apply_room_speed(1)
         self.assertFalse(client.time_gate)
         self.assertEqual(client.time_speed, 1)
-        setter.assert_called_once_with(0)
+        self.assertTrue(client._coop_hold)
+        self.assertGreaterEqual(setter.call_count, 2)
+        setter.assert_called_with(0)
 
     def test_time_sync_closes_gate_and_pauses(self):
         client = MultiplayerClient(client_name="Alice")
@@ -434,6 +544,7 @@ class TimeClientHandlerTests(unittest.TestCase):
 
     def test_echo_window_suppresses_apply_but_updates_state(self):
         client = MultiplayerClient(client_name="Alice")
+        client.min_players = 1
         client._clock_echo_until = time_far_future()
         with mock.patch("simmp_client.connectivity.game_hooks.set_clock_speed") as setter:
             client._handle_message(msg.make_time_sync(2))

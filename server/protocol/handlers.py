@@ -73,6 +73,8 @@ class Handlers:
             "TIME_READY": self._handle_time_ready,
             "TIME_UNREADY": self._handle_time_unready,
             "TIME_SPEED": self._handle_time_speed,
+            "SESSION_ROLE": self._handle_session_role,
+            "DEEP_RELAY": self._handle_deep_relay,
         }
         # Per-room cache of the last completed save push, so a player who
         # joins after the host shared still receives the save immediately
@@ -132,8 +134,10 @@ class Handlers:
             player.connection = conn
             player.name = name
             player.disconnected_at = None
+            player.is_lobby = bool(payload.get("lobby"))
         else:
             player = session.create_player(conn, name)
+            player.is_lobby = bool(payload.get("lobby"))
             if client_id:
                 session.bind_client_id(client_id, player.player_id)
 
@@ -154,8 +158,14 @@ class Handlers:
             conn.peer_address(),
         )
 
+        # Lobby GUI seats never claim deep host; only the in-game client does.
+        if payload.get("want_host") and not player.is_lobby:
+            session.claim_host(room_id, player.player_id)
+
         await conn.send(msg.make_welcome(player.player_id, room_id, time.time()))
-        await conn.send(msg.make_room_state(room_id, room.as_dict()["players"]))
+        if room.host_player_id is not None:
+            await conn.send(msg.make_deep_host(room.host_player_id, room_id=room_id))
+        await conn.send(msg.make_room_state(room_id, room.as_dict()["players"], host_player_id=room.host_player_id))
         zone_id = session.player_zone(player)
         if zone_id is None:
             zone_id = session.dominant_room_zone(room_id)
@@ -174,7 +184,7 @@ class Handlers:
         )
         await server.broadcast_room(
             room_id,
-            msg.make_player_joined(player.player_id, name, room_id),
+            msg.make_player_joined(player.player_id, name, room_id, lobby=player.is_lobby),
             exclude={player.player_id},
         )
         player.clock_ready = False
@@ -199,7 +209,7 @@ class Handlers:
             new_room_id,
         )
 
-        await conn.send(msg.make_room_state(new_room_id, new_room.as_dict()["players"]))
+        await conn.send(msg.make_room_state(new_room_id, new_room.as_dict()["players"], host_player_id=new_room.host_player_id))
         for frame in world_state_frames(
             new_room_id, server.session.get_world_objects(new_room_id)
         ):
@@ -911,6 +921,77 @@ class Handlers:
             room_id,
         )
 
+    async def _handle_session_role(self, conn, message):
+        if not await self._require_registered(conn, "SESSION_ROLE"):
+            return
+        player = self._server.session.get_player(conn.player_id)
+        if player is None or player.room_id is None:
+            await conn.send(msg.make_error("NOT_REGISTERED", "claim host requires a room"))
+            return
+        role = message["payload"]["role"]
+        if role == "host":
+            host_id = self._server.session.claim_host(player.room_id, player.player_id)
+            await self._server.broadcast_room(
+                player.room_id,
+                msg.make_deep_host(host_id, room_id=player.room_id),
+            )
+            await conn.send(
+                msg.make_session_role(
+                    "host" if host_id == player.player_id else "joiner",
+                    player_id=player.player_id,
+                )
+            )
+        else:
+            cleared = self._server.session.clear_host_if(player.room_id, player.player_id)
+            if cleared:
+                await self._server.broadcast_room(
+                    player.room_id,
+                    msg.make_deep_host(0, room_id=player.room_id),
+                )
+            await conn.send(msg.make_session_role("joiner", player_id=player.player_id))
+
+    async def _handle_deep_relay(self, conn, message):
+        if not await self._require_registered(conn, "DEEP_RELAY"):
+            return
+        player = self._server.session.get_player(conn.player_id)
+        if player is None or player.room_id is None:
+            await conn.send(msg.make_error("NOT_REGISTERED", "deep relay requires a room"))
+            return
+        payload = message["payload"]
+        route = payload["route"]
+        blob = payload["blob"]
+        kind = payload.get("kind")
+        stamped = msg.make_deep_relay(
+            blob,
+            route,
+            target_player_id=payload.get("target_player_id"),
+            player_id=player.player_id,
+            kind=kind,
+        )
+        session = self._server.session
+        if route == "host":
+            host_id = session.room_host(player.room_id)
+            if host_id is None:
+                await conn.send(msg.make_error("NO_HOST", "room has no deep host yet"))
+                return
+            host = session.players.get(host_id)
+            if host is None or host.connection is None:
+                await conn.send(msg.make_error("NO_HOST", "deep host is offline"))
+                return
+            if host.player_id == player.player_id:
+                return
+            await host.connection.send(stamped)
+            return
+        if route == "player":
+            target_id = payload["target_player_id"]
+            target = session.players.get(target_id)
+            if target is None or target.connection is None or target.room_id != player.room_id:
+                await conn.send(msg.make_error("NOT_FOUND", "deep relay target not in room"))
+                return
+            await target.connection.send(stamped)
+            return
+        await self._server.broadcast_room(player.room_id, stamped, exclude={player.player_id})
+
 
 def _decode_chunk(data):
     import base64
@@ -919,3 +1000,4 @@ def _decode_chunk(data):
         return base64.b64decode(data)
     except Exception:
         return b""
+

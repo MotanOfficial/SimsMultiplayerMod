@@ -423,3 +423,25 @@ docs/               architecture, protocol, milestones, research, testing
     python server/main.py                  # 127.0.0.1:8765
     python server/main.py --host 0.0.0.0 --port 9000   # LAN
     python server/main.py --log-file server.log
+## Deep host-authoritative layer (M19+)
+
+Alongside the existing JSON session protocol, Motanplayer now has a **deep**
+path modeled on host-authoritative Sims multiplayer:
+
+- **Host** runs the live Sims simulation (Timeline.simulate stays on).
+- **Joiners** disable local Timeline.simulate and relay pie-menu /
+  interaction commands to the host as Motanplayer protobuf WrapperMessage
+  blobs inside DEEP_RELAY frames.
+- The host rebuilds ChoiceMenu / pushes affordances and fans native EA
+  distributor / UI messages back as GameNetworkMessage (opaque
+  msg_id + bytes), which joiners inject with omega.send.
+- Injection uses simmp_client.deep.Override (role-aware monkey-patches)
+  and MessageHandler dispatch. Protocol builders live in
+  protocol/simmp/deep/ (dependency-free proto3 codec).
+- Room host is claimed via HELLO.want_host / SESSION_ROLE and advertised
+  with DEEP_HOST + ROOM_STATE.host_player_id.
+
+Config: "deep_hooks": true, "want_host": true (first claimant becomes host).
+
+The lighter poll-and-apply world/interaction sync remains for compatibility
+while the deep surface expands (clock, live drag, build-buy, situations, …).

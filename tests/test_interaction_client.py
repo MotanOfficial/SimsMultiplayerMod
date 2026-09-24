@@ -143,7 +143,63 @@ class InteractionClientTests(unittest.TestCase):
         self.run_flow(_with_server(flow, interaction_cooldown=0.1))
 
 
-def test_interaction_applier_receives_only_remote_entries(self):
+    def test_held_interaction_renews_when_sample_changes(self):
+        async def flow(server, port):
+            alice = MultiplayerClient(client_name="Alice", presence_interval=60.0)
+            bob = MultiplayerClient(client_name="Bob", presence_interval=60.0)
+            try:
+                self.assertTrue(alice.connect("127.0.0.1", port))
+                self.assertTrue(bob.connect("127.0.0.1", port))
+                self.assertTrue(await self._connected(alice))
+                self.assertTrue(await self._connected(bob))
+
+                state = {
+                    "key": "sim:42",
+                    "interaction": "treadmill",
+                    "affordance": "treadmill",
+                    "affordance_id": 1001,
+                    "target": None,
+                }
+                alice.set_interaction_sampler(lambda: [state])
+                alice.interaction_interval = 0.1
+
+                alice._last_interaction_tick = 0
+                alice._maybe_send_interactions()
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and self._mirror_entry(bob, "sim:42") is not None
+                    and self._mirror_entry(bob, "sim:42")["interaction"] == "treadmill",
+                    timeout=5.0,
+                ), "Bob never saw the treadmill proposal")
+                self.assertTrue(await _wait_until(
+                    lambda: (alice.process_incoming() or True)
+                    and alice.session.interactions.get("sim:42") is not None,
+                    timeout=5.0,
+                ), "Alice never mirrored her treadmill hold")
+
+                state.update({
+                    "interaction": "bed_sleep",
+                    "affordance": "bed_sleep",
+                    "affordance_id": 2002,
+                })
+                alice._last_interaction_tick = 0
+                alice._maybe_send_interactions()
+                self.assertTrue(await _wait_until(
+                    lambda: (bob.process_incoming() or True)
+                    and self._mirror_entry(bob, "sim:42") is not None
+                    and self._mirror_entry(bob, "sim:42")["interaction"] == "bed_sleep",
+                    timeout=5.0,
+                ), "Bob never saw the renewed bed_sleep interaction")
+                bob_entry = self._mirror_entry(bob, "sim:42")
+                self.assertEqual(bob_entry["affordance"], "bed_sleep")
+                self.assertEqual(bob_entry["affordance_id"], 2002)
+            finally:
+                alice.disconnect()
+                bob.disconnect()
+
+        self.run_flow(_with_server(flow, interaction_cooldown=0.1))
+
+    def test_interaction_applier_receives_only_remote_entries(self):
         async def flow(server, port):
             alice = MultiplayerClient(client_name="Alice", presence_interval=60.0)
             bob = MultiplayerClient(client_name="Bob", presence_interval=60.0)
@@ -174,7 +230,9 @@ def test_interaction_applier_receives_only_remote_entries(self):
 
                 # Bob's applier got the entry, but Alice's applier never saw
                 # her own interaction (her local game already runs it).
-                bob_entry = bob_applied[-1]
+                batch = bob_applied[-1]
+                self.assertEqual(len(batch), 1)
+                bob_entry = batch[0]
                 self.assertEqual(bob_entry["key"], "sim:42")
                 self.assertEqual(bob_entry["affordance"], "Read")
                 self.assertEqual(bob_entry["affordance_id"], 9001)

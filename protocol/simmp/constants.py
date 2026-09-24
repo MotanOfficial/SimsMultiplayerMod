@@ -76,6 +76,9 @@ TIME_SYNC = "TIME_SYNC"
 TIME_READY = "TIME_READY"
 TIME_UNREADY = "TIME_UNREADY"
 TIME_SPEED = "TIME_SPEED"
+SESSION_ROLE = "SESSION_ROLE"
+DEEP_HOST = "DEEP_HOST"
+DEEP_RELAY = "DEEP_RELAY"
 ERROR = "ERROR"
 
 MESSAGE_TYPES = frozenset(
@@ -120,6 +123,9 @@ MESSAGE_TYPES = frozenset(
         TIME_READY,
         TIME_UNREADY,
         TIME_SPEED,
+        SESSION_ROLE,
+        DEEP_HOST,
+        DEEP_RELAY,
         ERROR,
     ]
 )
@@ -165,6 +171,9 @@ REQUIRED_PAYLOAD_FIELDS = {
     TIME_READY: ("zone_id",),
     TIME_UNREADY: (),
     TIME_SPEED: ("speed",),
+    SESSION_ROLE: ("role",),
+    DEEP_HOST: ("host_player_id",),
+    DEEP_RELAY: ("blob", "route"),
     ERROR: ("code", "message"),
 }
 
@@ -172,7 +181,9 @@ REQUIRED_PAYLOAD_FIELDS = {
 # server-stamped (origin player/room identity) or client-supplied optional
 # data (client_id) and may be omitted on the wire.
 OPTIONAL_PAYLOAD_FIELDS = {
-    HELLO: ("client_id",),
+    ROOM_STATE: ("host_player_id",),
+    HELLO: ("client_id", "want_host", "lobby"),
+    PLAYER_JOINED: ("lobby",),
     EVENT: ("player_id",),
     PRESENCE: ("player_id", "room_id"),
     TRAVEL_REQUEST: ("player_id",),
@@ -198,6 +209,9 @@ OPTIONAL_PAYLOAD_FIELDS = {
     TIME_READY: ("player_id",),
     TIME_UNREADY: ("player_id",),
     TIME_SPEED: ("ticks", "player_id"),
+    SESSION_ROLE: ("player_id",),
+    DEEP_HOST: ("room_id",),
+    DEEP_RELAY: ("target_player_id", "player_id", "kind"),
     ERROR: ("ref",),
 }
 

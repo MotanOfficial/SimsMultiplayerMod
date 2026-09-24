@@ -84,15 +84,25 @@ class LobbyMixin(object):
         self._set_players(len(connected))
         if self.server is None or not self.server.thread_alive():
             return
-        names = ", ".join(p.get("name", "?") for p in connected)
         if connected:
-            detail = "%d player(s) connected: %s" % (len(connected), names)
+            # Prefer showing in-game seats; lobby GUI seats stay connected.
+            game = [p for p in connected if not p.get("lobby")]
+            lobby = [p for p in connected if p.get("lobby")]
+            parts = []
+            if game:
+                parts.append(
+                    "%d in-game: %s"
+                    % (len(game), ", ".join(p.get("name", "?") for p in game))
+                )
+            if lobby:
+                parts.append(
+                    "%d lobby: %s"
+                    % (len(lobby), ", ".join(p.get("name", "?") for p in lobby))
+                )
+            detail = "; ".join(parts) if parts else "%d connected" % len(connected)
             color = GREEN
         elif self._synced:
-            # Lobby TCP clients disconnect when either side presses Start so
-            # the game can take the seat. Keep the host informed instead of
-            # looking like everyone vanished.
-            detail = "Lobby clients left to launch - press Start Game if you haven't."
+            detail = "Waiting for players (save already synced)."
             color = AMBER
         else:
             detail = "Waiting for players to join..."
@@ -334,19 +344,34 @@ class LobbyMixin(object):
         self._set_can_join_start(True)
 
     # --------------------------------------------------------------- launch
-    def _write_config(self, host, port, name):
+    def _write_config(self, host, port, name, role="join"):
+        """Write Sims4Multiplayer.json for a deep-hooks session.
+
+        Host claims simulation authority (`want_host`); joiners relay UI
+        intent and do not claim. Legacy sampler sync (world / interaction /
+        funds / build) is turned off so it does not fight deep hooks.
+        """
         mods = self._mods.strip() or None
         if not mods:
             self._note("No Mods folder set - cannot write auto-connect config.", kind="error")
             return
         config_dir = os.path.join(mods, "Sims4Multiplayer")
         os.makedirs(config_dir, exist_ok=True)
+        is_host = role == "host"
         config = {
             "host": host,
             "port": int(port),
             "name": name,
             "auto_connect": True,
             "min_players": 2,
+            # Deep host-authoritative path (primary).
+            "deep_hooks": True,
+            "want_host": is_host,
+            # Legacy sampler paths — off while deep is primary.
+            "world_sync": False,
+            "interaction_sync": False,
+            "sync_funds": False,
+            "build_sync": False,
         }
         targets = [
             os.path.join(mods, "Sims4Multiplayer.json"),
@@ -358,11 +383,14 @@ class LobbyMixin(object):
                     json.dump(config, handle, indent=2)
             except OSError as exc:
                 self._note("Could not write config %s: %s" % (target, exc), kind="error")
-        self._note("Auto-connect config written for %s:%s (name: %s)" % (host, port, name))
+        self._note(
+            "Auto-connect config written for %s:%s (name: %s, deep %s)"
+            % (host, port, name, "host" if is_host else "joiner")
+        )
 
     def _launch_game(self, role, config_host, config_port):
         name = (self._host_name if role == "host" else self._join_name).strip() or role.title()
-        self._write_config(config_host, config_port, name)
+        self._write_config(config_host, config_port, name, role=role)
         game = self._game.strip()
         if game and os.path.isfile(game):
             try:
@@ -384,7 +412,8 @@ class LobbyMixin(object):
         if self.server is None or not self.server.thread_alive():
             self._note("Start the lobby first.", kind="error")
             return
-        self._disconnect_held("_share_client")
+        # Keep the lobby TCP seat connected so the GUI stays in the room;
+        # it is tagged lobby=true and does not block the in-game clock gate.
         self._note("Starting the game on the host side...")
         self._launch_game("host", "127.0.0.1", self.server.actual_port)
         self._set_can_host_start(False)
@@ -393,7 +422,8 @@ class LobbyMixin(object):
     def startGameJoin(self):
         host = self._join_ip.strip()
         port = self._join_port.strip()
-        self._disconnect_held("_join_client")
+        # Keep the join lobby seat connected (lobby=true) while the game
+        # auto-connects with its own in-game client.
         self._note("Starting the game on the join side...")
         self._launch_game("join", host or "127.0.0.1", port or DEFAULT_PORT)
         self._set_can_join_start(False)

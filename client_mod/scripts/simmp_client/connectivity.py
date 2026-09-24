@@ -70,8 +70,10 @@ class MultiplayerClient:
         self.reconnect_backoff_max = 30.0
         # Co-op start gate: hold the game paused until this many players are
         # present, so whoever loads in first cannot play ahead of the others.
-        self.min_players = 1
+        self.min_players = 2
         self._players_wait_logged = False
+        self._force_pause_logged = False
+        self._coop_hold = False
         self._reconnect_attempt = 0
         self._next_reconnect_at = 0.0
         self._alarm_started_at = 0.0
@@ -95,6 +97,12 @@ class MultiplayerClient:
         self._clock_apply_enabled = True
         self._autonomy_reconciler = None
         self.autonomy_suppression = True
+        self.deep_hooks = True
+        self.want_host = True
+        # True for launcher GUI seats (save share / join receive). Tagged on
+        # HELLO so the server excludes them from the co-op clock gate.
+        self.is_lobby = False
+        self._deep = None
         # Household funds sync (money).
         self.funds_sampler = None
         self.funds_applier = None
@@ -187,6 +195,8 @@ class MultiplayerClient:
             client_name=self.client_name,
             client_version=version.CLIENT_VERSION,
             client_id=self.client_id,
+            want_host=self.want_host if self.deep_hooks else None,
+            lobby=self.is_lobby,
         )
         if not engine.connect(timeout=10.0):
             engine.stop()
@@ -195,6 +205,7 @@ class MultiplayerClient:
             return False
 
         self.engine = engine
+        self._bind_deep_session()
         self._log("NET", "Connected to %s:%s" % (host, port))
         self._start_alarm()
         self._reconnect_attempt = 0
@@ -207,6 +218,7 @@ class MultiplayerClient:
         if self.engine is not None:
             self.engine.stop()
             self.engine = None
+        self._teardown_deep()
         self.session.connected = False
         self._reclaim_pending = False
         self._dropped_owned = set()
@@ -431,6 +443,11 @@ class MultiplayerClient:
     def _apply_room_speed(self, speed):
         if not self._clock_apply_enabled:
             return False
+        # Local coop-hold: never apply speed>0 while peers are still missing,
+        # even if the server already opened its gate for a solo ready host.
+        if speed != CLOCK_SPEED_PAUSED and (self._coop_hold or self._players_short()):
+            self._coop_hold = True
+            speed = CLOCK_SPEED_PAUSED
         try:
             result = game_hooks.set_clock_speed(speed)
             self._log("TIME", "Applied room speed %s -> %s" % (speed, result))
@@ -440,9 +457,10 @@ class MultiplayerClient:
             return False
 
     def _connected_player_count(self):
+        """In-game seats only — launcher lobby TCP clients do not count."""
         count = 0
         for player in self.session.room_players.values():
-            if player.get("connected", True):
+            if player.get("connected", True) and not player.get("lobby"):
                 count += 1
         return count
 
@@ -459,20 +477,45 @@ class MultiplayerClient:
     def _maybe_sync_clock(self):
         """Reconcile the game clock with the room's authoritative state.
 
-        Runs on the game thread (alarm tick). While the room is gated (someone
-        is joining / not ready yet) the client enforces PAUSED and never pushes
-        a start, so nobody plays ahead. Once the gate is open, any local
-        divergence beyond the echo window is a deliberate player change (last
-        change wins) and is broadcast as TIME_SPEED. TIME_READY is re-sent
-        automatically the first time the zone is running, again after any
-        WELCOME (fresh or resumed connection), and whenever the running zone
-        changes id mid-session (travel), which makes the server re-gate the
-        room until every member has arrived in the new zone.
+        Runs on the game thread (alarm tick). Force-pauses every tick (before
+        the ``clock_interval`` throttle) while disconnected, gated, or waiting
+        for peers, so the game cannot sneak unpause between syncs. Once the
+        gate is open and peers are present, local speed changes are broadcast
+        as TIME_SPEED. TIME_READY is re-sent automatically the first time the
+        zone is running, again after any WELCOME, and whenever the running zone
+        changes id mid-session (travel).
         """
         engine = self.engine
-        if engine is None or not engine.connected:
-            return
+        connected = engine is not None and engine.connected
         zone_state = game_hooks.current_zone_running_state()
+
+        # Force-pause every alarm tick BEFORE clock_interval so a 1.5s throttle
+        # cannot leave the game playing while we wait for co-op readiness.
+        hold = (not connected) or self.time_gate or self._players_short()
+        self._coop_hold = hold
+        if zone_state.running and hold:
+            local = game_hooks.get_clock_speed()
+            if local is not None and local != CLOCK_SPEED_PAUSED:
+                game_hooks.set_clock_speed(CLOCK_SPEED_PAUSED)
+            if not connected:
+                if not self._force_pause_logged:
+                    self._force_pause_logged = True
+                    self._log(
+                        "TIME",
+                        "Force-paused until %d players connected" % self.min_players,
+                    )
+            elif self._players_short() and not self._players_wait_logged:
+                self._players_wait_logged = True
+                self._log(
+                    "TIME",
+                    "Holding paused until %d players present (%d connected)"
+                    % (self.min_players, self._connected_player_count()),
+                )
+
+        if not connected:
+            return
+
+        self._force_pause_logged = False
         if not zone_state.running:
             # Outside a playable zone (CAS, manage worlds, main menu, loading).
             # Tell the server so it re-gates the room PAUSED until we return
@@ -501,29 +544,19 @@ class MultiplayerClient:
             self.zone_ready_id = zone_id
             self._ready_pending_reason = ""
             self._log("TIME", "TIME_READY zone=%s" % zone_id)
+
+        # Still holding for gate/peers: already force-paused above. Do not wait
+        # for clock_interval and do not push a local speed start.
+        if self.time_gate or self._players_short():
+            return
+
+        self._players_wait_logged = False
         if now < self._last_clock_tick:
             return
         self._last_clock_tick = now + self.clock_interval
         local = game_hooks.get_clock_speed()
         if local is None:
             return
-        if self.time_gate or self._players_short():
-            # Gated: someone is still joining/loading (or the co-op session is
-            # waiting for peers to connect). The room must stay paused. Do this
-            # eagerly even inside an echo window - the echo exists only to
-            # suppress the server bouncing our own OPEN-gate speed change back
-            # at us, never a PAUSE.
-            if local != CLOCK_SPEED_PAUSED:
-                game_hooks.set_clock_speed(CLOCK_SPEED_PAUSED)
-            if self._players_short() and not self._players_wait_logged:
-                self._players_wait_logged = True
-                self._log(
-                    "TIME",
-                    "Holding paused until %d players present (%d connected)"
-                    % (self.min_players, self._connected_player_count()),
-                )
-            return
-        self._players_wait_logged = False
         if now - self._gate_open_since < self._clock_echo_window:
             if local != self.time_speed:
                 self._apply_room_speed(self.time_speed)
@@ -638,6 +671,43 @@ class MultiplayerClient:
             return False
         return self.engine.send_save_request()
 
+
+    def _bind_deep_session(self):
+        if not self.deep_hooks:
+            self._deep = None
+            return
+        from simmp_client.deep.session import SESSION
+
+        self._deep = SESSION
+        self._deep.bind(
+            send_fn=lambda frame: self.engine.send_message(frame) if self.engine else None,
+            player_id=self.session.player_id,
+        )
+        try:
+            from simmp_client.deep import persistence as deep_persistence
+
+            deep_persistence.set_disconnect_fn(self.disconnect)
+        except Exception:
+            pass
+
+    def _teardown_deep(self):
+        if self._deep is not None:
+            try:
+                self._deep.deactivate()
+            except Exception:
+                pass
+            self._deep = None
+
+    def deep_summary(self):
+        deep = self._deep
+        if deep is None:
+            return "deep=off"
+        return "deep=on host=%s me_host=%s host_id=%s" % (
+            deep.enabled,
+            deep.is_host,
+            deep.host_player_id,
+        )
+
     def process_incoming(self):
         if self.engine is None:
             return
@@ -688,6 +758,7 @@ class MultiplayerClient:
         if self._ready_pending_reason:
             lines.append("ready_wait=%s" % self._ready_pending_reason)
         lines.append("alarm=%s" % self.alarm_summary())
+        lines.append(self.deep_summary())
         lines.append("tick_error=%s" % (self._last_tick_error or "none"))
         try:
             lines.append("zone=%s" % game_hooks.current_zone_running_state())
@@ -733,6 +804,22 @@ class MultiplayerClient:
     def _handle_message(self, message):
         message_type = message["type"]
         payload = message["payload"]
+        if self._deep is not None and message_type in ("DEEP_HOST", "DEEP_RELAY", "SESSION_ROLE"):
+            self._deep.set_player_id(self.session.player_id)
+            self._deep.handle_protocol_message(message)
+            if message_type == "DEEP_RELAY":
+                return
+            if message_type == "SESSION_ROLE":
+                self._log("DEEP", "role=%s" % payload.get("role"))
+                return
+            if message_type == "DEEP_HOST":
+                if not self._deep.enabled:
+                    am_host = self.session.player_id == payload.get("host_player_id")
+                    self._deep.activate(am_host, host_player_id=payload.get("host_player_id"))
+                    self._log("DEEP", "activated as %s (host_id=%s)" % (
+                        "host" if am_host else "joiner", payload.get("host_player_id"),
+                    ))
+                return
         if message_type == "WELCOME":
             self.session.apply_welcome(payload)
             self.time_ready_sent = False
@@ -741,6 +828,12 @@ class MultiplayerClient:
             self._log("NET", "Player ID: %s (room %s)" % (payload["player_id"], payload["room_id"]))
         elif message_type == "ROOM_STATE":
             self.session.apply_room_state(payload)
+            if self._deep is not None and "host_player_id" in payload:
+                self._deep.set_player_id(self.session.player_id)
+                self._deep.handle_protocol_message(message)
+                if not self._deep.enabled and payload.get("host_player_id"):
+                    am_host = self.session.player_id == payload.get("host_player_id")
+                    self._deep.activate(am_host, host_player_id=payload.get("host_player_id"))
             names = [p["name"] for p in payload["players"]]
             self._log("ROOM", "Room %s players: %s" % (payload["room_id"], ", ".join(names) or "-"))
         elif message_type == "PLAYER_JOINED":
@@ -808,16 +901,14 @@ class MultiplayerClient:
             self.time_ticks = payload.get("ticks")
             self.time_gate = gate
             now = time.time()
-            # Co-op start hold: the server opens the gate as soon as every
-            # *currently connected* member is ready. Alone that means a solo
-            # TIME_READY unpauses the room. `min_players` must still force a
-            # local pause until peers exist, or the first player desyncs.
-            hold_for_peers = (not gate) and self._players_short()
-            if gate or hold_for_peers:
+            # Co-op start hold: keep a local pause until peers are present even
+            # when an older server opens the gate for a solo ready player.
+            self._coop_hold = gate or self._players_short()
+            if self._coop_hold:
                 # Room paused (peer still joining/loading) OR waiting for the
-                # configured co-op headcount: apply PAUSE immediately.
+                # configured co-op headcount: always apply PAUSE.
                 self._apply_room_speed(CLOCK_SPEED_PAUSED)
-                if hold_for_peers and not self._players_wait_logged:
+                if self._players_short() and not self._players_wait_logged:
                     self._players_wait_logged = True
                     self._log(
                         "TIME",
@@ -1536,6 +1627,16 @@ class MultiplayerClient:
             self._last_funds_sent = now
             self._log("FUNDS", "broadcast balance %s (changed)" % balance)
 
+    @staticmethod
+    def _interaction_sample_changed(held, sample_entry):
+        """True if sample differs from the held mirror on action/aim fields."""
+        return (
+            held.get("interaction") != sample_entry.get("interaction")
+            or held.get("affordance") != sample_entry.get("affordance")
+            or held.get("affordance_id") != sample_entry.get("affordance_id")
+            or held.get("target") != sample_entry.get("target")
+        )
+
     def _maybe_send_interactions(self):
         """Reconcile the mirror against what this client's sims are doing.
 
@@ -1574,19 +1675,24 @@ class MultiplayerClient:
         for key, entry in active.items():
             held = self.session.interactions.get(key)
             if held is not None:
-                continue
-            # Only propose interactions for keys that are not owned by another
-            # player. Local autonomy on a peer-owned sim flooded BUSY/COOLDOWN
-            # and fought the mirrored action (Sleep on host, walk on laptop).
-            # Keys without a world mirror yet are still proposed - the server
-            # decides ownership from there.
-            world = self.session.world.get(key)
-            if (
-                world is not None
-                and world.owner is not None
-                and not world.is_owned_by(mine)
-            ):
-                continue
+                if held["player_id"] != mine:
+                    continue
+                if not self._interaction_sample_changed(held, entry):
+                    continue
+                # Same holder, different sample: renew so peers see the new action.
+            else:
+                # Only propose interactions for keys that are not owned by another
+                # player. Local autonomy on a peer-owned sim flooded BUSY/COOLDOWN
+                # and fought the mirrored action (Sleep on host, walk on laptop).
+                # Keys without a world mirror yet are still proposed - the server
+                # decides ownership from there.
+                world = self.session.world.get(key)
+                if (
+                    world is not None
+                    and world.owner is not None
+                    and not world.is_owned_by(mine)
+                ):
+                    continue
             if now < self._denied_until.get(key, 0):
                 continue
             if not self.propose_interaction(

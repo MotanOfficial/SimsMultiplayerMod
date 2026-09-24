@@ -27,7 +27,7 @@ def build_message(msg_type, payload=None, request_id_value=None):
     return message
 
 
-def make_hello(client_name, client_version, client_id=None):
+def make_hello(client_name, client_version, client_id=None, want_host=None, lobby=None):
     payload = {
         "client_name": client_name,
         "client_version": client_version,
@@ -35,6 +35,10 @@ def make_hello(client_name, client_version, client_id=None):
     }
     if client_id is not None:
         payload["client_id"] = client_id
+    if want_host is not None:
+        payload["want_host"] = bool(want_host)
+    if lobby is not None:
+        payload["lobby"] = bool(lobby)
     return build_message("HELLO", payload)
 
 
@@ -62,12 +66,18 @@ def make_join_room(room_id):
     return build_message("JOIN_ROOM", {"room_id": room_id})
 
 
-def make_room_state(room_id, players):
-    return build_message("ROOM_STATE", {"room_id": room_id, "players": players})
+def make_room_state(room_id, players, host_player_id=None):
+    payload = {"room_id": room_id, "players": players}
+    if host_player_id is not None:
+        payload["host_player_id"] = host_player_id
+    return build_message("ROOM_STATE", payload)
 
 
-def make_player_joined(player_id, name, room_id):
-    return build_message("PLAYER_JOINED", {"player_id": player_id, "name": name, "room_id": room_id})
+def make_player_joined(player_id, name, room_id, lobby=False):
+    payload = {"player_id": player_id, "name": name, "room_id": room_id}
+    if lobby:
+        payload["lobby"] = True
+    return build_message("PLAYER_JOINED", payload)
 
 
 def make_player_left(player_id, room_id, reason):
@@ -379,3 +389,29 @@ def make_error(code, message, ref=None):
     if ref is not None:
         payload["ref"] = ref
     return build_message("ERROR", payload)
+
+
+def make_session_role(role, player_id=None):
+    payload = {"role": role}
+    if player_id is not None:
+        payload["player_id"] = player_id
+    return build_message("SESSION_ROLE", payload)
+
+
+def make_deep_host(host_player_id, room_id=None):
+    payload = {"host_player_id": host_player_id}
+    if room_id is not None:
+        payload["room_id"] = room_id
+    return build_message("DEEP_HOST", payload)
+
+
+def make_deep_relay(blob, route, target_player_id=None, player_id=None, kind=None):
+    payload = {"blob": blob, "route": route}
+    if target_player_id is not None:
+        payload["target_player_id"] = target_player_id
+    if player_id is not None:
+        payload["player_id"] = player_id
+    if kind is not None:
+        payload["kind"] = kind
+    return build_message("DEEP_RELAY", payload)
+

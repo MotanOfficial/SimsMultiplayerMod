@@ -216,6 +216,7 @@ def _mp_who(_connection=None):
 @sims4.commands.Command("mp.autoconnect", command_type=sims4.commands.CommandType.Cheat)
 def _mp_autoconnect(path="", _connection=None):
     from simmp_client.config import ConfigError, find_config_file, load_config
+    from simmp_client.sims4_plugin import _apply_config
 
     try:
         cfg_path = find_config_file(path if path else None)
@@ -226,17 +227,12 @@ def _mp_autoconnect(path="", _connection=None):
     except ConfigError as exc:
         _console_output("[MP][ERROR] config error: %s" % exc, _connection)
         return
-    _client.client_name = config["name"]
-    _console_output("[MP][NET] config loaded from %s" % cfg_path, _connection)
-    _client.min_players = config["min_players"]
-    _client.presence_ttl = config["presence_ttl"]
-    _client.auto_accept_travel = config["auto_accept_travel"]
-    _client.world_sync = config["world_sync"]
-    _client.world_interval = config["world_interval"]
-    _client.interaction_sync = config["interaction_sync"]
-    _client.interaction_interval = config["interaction_interval"]
-    configure_ui(config["ui_dialogs"])
-    _configure_auto_reconnect(config)
+    _apply_config(config)
+    _console_output(
+        "[MP][NET] config loaded from %s (deep_hooks=%s want_host=%s)"
+        % (cfg_path, config.get("deep_hooks", True), config.get("want_host", True)),
+        _connection,
+    )
     _client.connect(config["host"], config["port"])
 
 

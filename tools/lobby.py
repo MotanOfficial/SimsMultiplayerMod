@@ -127,7 +127,8 @@ class ServerHandle:
     """
 
     def __init__(self, host="0.0.0.0", port=8765, status_file=None,
-                 log_file=None, log_level="INFO", on_status=None, on_log=None):
+                 log_file=None, log_level="INFO", on_status=None, on_log=None,
+                 min_players=2):
         self.host = host
         self.port = int(port)
         self.status_file = status_file
@@ -135,6 +136,7 @@ class ServerHandle:
         self.log_level = log_level
         self.on_status = on_status
         self.on_log = on_log
+        self.min_players = max(1, int(min_players))
         self.thread = None
         self._loop = None
         self._server = None
@@ -189,6 +191,7 @@ class ServerHandle:
             self.port,
             logger=self._make_logger(),
             status_file=self.status_file,
+            min_players=self.min_players,
         )
         try:
             await server.start()
@@ -294,6 +297,8 @@ def push_save_file(path, host, port, slot=None, timeout=30.0, name="LobbyHost", 
                 pass
 
     client = MultiplayerClient(client_name=name, notify=_notify)
+    client.is_lobby = True
+    client.deep_hooks = False
     if not client.connect(host, port):
         client.disconnect()
         raise RuntimeError("connect() returned False; is the lobby running?")
@@ -397,6 +402,8 @@ def receive_save_file(host, port, name="LobbyClient", timeout=60.0, save_dir_can
                 pass
 
     client = MultiplayerClient(client_name=name, notify=_notify)
+    client.is_lobby = True
+    client.deep_hooks = False
     if not client.connect(host, port):
         client.disconnect()
         raise RuntimeError("connect() returned False; is the lobby running?")

@@ -10,7 +10,7 @@ from simmp.constants import (
 
 
 class Player:
-    def __init__(self, player_id, connection, name, joined_at=None):
+    def __init__(self, player_id, connection, name, joined_at=None, is_lobby=False):
         self.player_id = player_id
         self.connection = connection
         self.name = name
@@ -22,17 +22,23 @@ class Player:
         self.clock_ready = False
         self.clock_zone = None
         self.disconnected_at = None
+        # Launcher TCP seat: stays connected during Start Game, but must not
+        # count toward the co-op clock gate (never sends TIME_READY).
+        self.is_lobby = bool(is_lobby)
 
     @property
     def connected(self):
         return self.connection is not None
 
     def as_dict(self):
-        return {
+        data = {
             "player_id": self.player_id,
             "name": self.name,
             "connected": self.connected,
         }
+        if self.is_lobby:
+            data["lobby"] = True
+        return data
 
 
 class Room:
@@ -54,9 +60,11 @@ class Room:
         # stores the last-reported balance so a late joiner or a peer
         # that falls behind sees a converged number.
         self.funds = {"balance": 0, "by_player": None}
+        # Deep layer: which player runs the authoritative Sims simulation.
+        self.host_player_id = None
 
     def as_dict(self):
-        return {
+        data = {
             "room_id": self.room_id,
             "players": [player.as_dict() for player in self.members.values()],
             "clock": {
@@ -64,6 +72,9 @@ class Room:
                 "by_player": self.clock["by_player"],
             },
         }
+        if self.host_player_id is not None:
+            data["host_player_id"] = self.host_player_id
+        return data
 
 
 class WorldObject:
@@ -100,7 +111,7 @@ class Interaction:
 
 
 class Session:
-    def __init__(self):
+    def __init__(self, min_players=2):
         self._players = {}
         self._rooms = {DEFAULT_ROOM_ID: Room(DEFAULT_ROOM_ID)}
         self._next_player_id = 1000
@@ -109,6 +120,11 @@ class Session:
         self._world_seq_by_zone = {}
         self._interactions_by_zone = {}
         self._cooldowns_by_zone = {}
+        # Co-op start gate: keep the room clock PAUSED until at least this many
+        # participants have a live TCP connection *and* every participant
+        # (including ghosts) has signalled TIME_READY. Solo TIME_READY must
+        # not open the gate when min_players=2.
+        self.min_players = max(1, int(min_players))
 
     @property
     def players(self):
@@ -462,6 +478,30 @@ class Session:
             interaction_released.append((key, cooldown_until))
         return (world_released, interaction_released)
 
+
+    def claim_host(self, room_id, player_id):
+        """Assign the deep-sim host for a room. First claim wins; same player refreshes."""
+        room = self._rooms.get(room_id)
+        if room is None:
+            return None
+        if room.host_player_id is None or room.host_player_id == player_id:
+            room.host_player_id = player_id
+            return player_id
+        return room.host_player_id
+
+    def clear_host_if(self, room_id, player_id):
+        room = self._rooms.get(room_id)
+        if room is not None and room.host_player_id == player_id:
+            room.host_player_id = None
+            return True
+        return False
+
+    def room_host(self, room_id):
+        room = self._rooms.get(room_id)
+        if room is None:
+            return None
+        return room.host_player_id
+
     def expire_ghosts(self, player_ttl, interaction_cooldown, now=None):
         """Evict players who stayed disconnected longer than `player_ttl`.
 
@@ -537,10 +577,32 @@ player_id).
             if player.room_id == room_id:
                 player.clock_ready = False
 
+    def _room_participants(self, room_id):
+        """Players that count for the co-op clock gate (excludes lobby seats)."""
+        return [
+            p for p in self._players.values()
+            if p.room_id == room_id and not p.is_lobby
+        ]
+
+    def _room_all_members(self, room_id):
+        return [p for p in self._players.values() if p.room_id == room_id]
+
+    def _connected_participant_count(self, participants):
+        return sum(1 for p in participants if p.connection is not None)
+
     def clock_gate_open(self, room_id):
-        """True when every participant (members + ghosts) has signalled ready."""
-        participants = [p for p in self._players.values() if p.room_id == room_id]
+        """True when enough live players are present and everyone is ready.
+
+        The gate stays closed unless:
+        - the number of *connected* participants (connection is not None) is
+          at least ``min_players``, AND
+        - every participant (including ghosts) has signalled TIME_READY.
+        Solo TIME_READY therefore does not open the gate when min_players=2.
+        """
+        participants = self._room_participants(room_id)
         if not participants:
+            return False
+        if self._connected_participant_count(participants) < self.min_players:
             return False
         return all(p.clock_ready for p in participants)
 
@@ -549,8 +611,13 @@ player_id).
         room = self._rooms.get(room_id)
         if room is None:
             return None
-        participants = [p for p in self._players.values() if p.room_id == room_id]
-        gate_closed = not participants or not all(p.clock_ready for p in participants)
+        participants = self._room_participants(room_id)
+        connected = self._connected_participant_count(participants)
+        gate_closed = (
+            not participants
+            or connected < self.min_players
+            or not all(p.clock_ready for p in participants)
+        )
         ready = [p.player_id for p in participants if p.clock_ready]
         return {
             "speed": MIN_CLOCK_SPEED if gate_closed else room.clock["desired"],

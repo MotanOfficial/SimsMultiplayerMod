@@ -160,5 +160,31 @@ class LauncherGuiTests(unittest.TestCase):
         )
 
 
+
+    def test_write_config_deep_primary_host_vs_joiner(self):
+        import shutil
+
+        app = self._app()
+        mods = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(mods, ignore_errors=True))
+        app._mods = mods
+        app._write_config("127.0.0.1", 8765, "Alice", role="host")
+        path = os.path.join(mods, "Sims4Multiplayer.json")
+        with open(path, encoding="utf-8") as handle:
+            host_cfg = json.load(handle)
+        self.assertTrue(host_cfg["deep_hooks"])
+        self.assertTrue(host_cfg["want_host"])
+        self.assertFalse(host_cfg["world_sync"])
+        self.assertFalse(host_cfg["interaction_sync"])
+        self.assertFalse(host_cfg["sync_funds"])
+        self.assertFalse(host_cfg["build_sync"])
+        app._write_config("10.0.0.2", 8765, "Bob", role="join")
+        with open(path, encoding="utf-8") as handle:
+            join_cfg = json.load(handle)
+        self.assertTrue(join_cfg["deep_hooks"])
+        self.assertFalse(join_cfg["want_host"])
+        self.assertEqual(join_cfg["name"], "Bob")
+
+
 if __name__ == "__main__":
     unittest.main()

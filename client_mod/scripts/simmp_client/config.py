@@ -25,19 +25,23 @@ DEFAULT_CONFIG = {
     "port": 8765,
     "name": "Sims4Player",
     "auto_connect": False,
-    "min_players": 1,
+    "min_players": 2,
     "presence_interval": 5.0,
     "presence_ttl": 30.0,
     "auto_accept_travel": True,
-    "world_sync": True,
+    # Legacy sampler sync defaults off — deep_hooks is the primary path.
+    # Re-enable these only for an explicit legacy fallback session.
+    "world_sync": False,
     "world_interval": 5.0,
-    "interaction_sync": True,
+    "interaction_sync": False,
     "interaction_interval": 5.0,
-    "sync_funds": True,
+    "sync_funds": False,
     "funds_interval": 2.0,
-    "build_sync": True,
+    "build_sync": False,
     "ui_dialogs": True,
     "autonomy_suppression": True,
+    "deep_hooks": True,
+    "want_host": True,
     "auto_reconnect": True,
     "reconnect_backoff_min": 2.0,
     "reconnect_backoff_max": 30.0,
@@ -123,6 +127,10 @@ def _coerce_and_validate(values):
         raise ConfigError("ui_dialogs must be true or false")
     if "autonomy_suppression" in values and not isinstance(values["autonomy_suppression"], bool):
         raise ConfigError("autonomy_suppression must be true or false")
+    if "deep_hooks" in values and not isinstance(values["deep_hooks"], bool):
+        raise ConfigError("deep_hooks must be true or false")
+    if "want_host" in values and not isinstance(values["want_host"], bool):
+        raise ConfigError("want_host must be true or false")
     if "auto_reconnect" in values and not isinstance(values["auto_reconnect"], bool):
         raise ConfigError("auto_reconnect must be true or false")
     if "reconnect_backoff_min" in values:

@@ -31,7 +31,7 @@ from simmp.constants import (
 )
 
 INT_FIELDS = frozenset(
-    ["player_id", "protocol_version", "seq", "zone_id", "lot_id", "requester_id", "absolute_ticks", "clock_speed", "affordance_id", "origin", "total", "size", "reached", "speed", "ticks"]
+    ["player_id", "host_player_id", "target_player_id", "protocol_version", "seq", "zone_id", "lot_id", "requester_id", "absolute_ticks", "clock_speed", "affordance_id", "origin", "total", "size", "reached", "speed", "ticks"]
 )
 FLOAT_FIELDS = frozenset(
     ["client_time", "server_time", "timestamp", "real_time", "started_at", "cooldown_until"]
@@ -56,6 +56,10 @@ STR_FIELDS = frozenset(
         "target",
         "slot",
         "data",
+        "role",
+        "route",
+        "blob",
+        "kind",
     ]
 )
 
@@ -210,6 +214,8 @@ def _validate_field_types(msg_type, payload):
                 "MALFORMED",
                 "connected must be a boolean",
             )
+            if player.get("lobby") is not None:
+                require(isinstance(player["lobby"], bool), "MALFORMED", "lobby must be a bool")
 
     if msg_type == "OBJECT_UPDATE":
         _validate_object_entries(payload["objects"], require_rev=True)
@@ -315,6 +321,45 @@ def _validate_field_types(msg_type, payload):
             "MALFORMED",
             "'speed' must be an int clock speed in %s..%s" % (MIN_CLOCK_SPEED, MAX_CLOCK_SPEED),
         )
+    if msg_type == "SESSION_ROLE":
+        require(
+            isinstance(payload["role"], str) and payload["role"] in ("host", "joiner"),
+            "MALFORMED",
+            "'role' must be 'host' or 'joiner'",
+        )
+
+    if msg_type == "DEEP_HOST":
+        require(
+            isinstance(payload["host_player_id"], int) and not isinstance(payload["host_player_id"], bool) and payload["host_player_id"] >= 0,
+            "MALFORMED",
+            "'host_player_id' must be a non-negative int",
+        )
+
+    if msg_type == "DEEP_RELAY":
+        require(isinstance(payload["blob"], str) and 0 < len(payload["blob"]) <= MAX_SAVE_CHUNK_BASE64_LENGTH, "MALFORMED", "'blob' must be a non-empty base64 string")
+        require(
+            isinstance(payload["route"], str) and payload["route"] in ("host", "player", "broadcast"),
+            "MALFORMED",
+            "'route' must be host|player|broadcast",
+        )
+        if payload["route"] == "player":
+            require(
+                "target_player_id" in payload
+                and isinstance(payload["target_player_id"], int)
+                and not isinstance(payload["target_player_id"], bool),
+                "MALFORMED",
+                "route=player requires target_player_id",
+            )
+        if payload.get("kind") is not None:
+            require(isinstance(payload["kind"], str) and 0 < len(payload["kind"]) <= MAX_STRING_LENGTH, "MALFORMED", "'kind' must be a short string")
+
+    if msg_type == "HELLO" and payload.get("want_host") is not None:
+        require(isinstance(payload["want_host"], bool), "MALFORMED", "'want_host' must be a bool")
+    if msg_type == "HELLO" and payload.get("lobby") is not None:
+        require(isinstance(payload["lobby"], bool), "MALFORMED", "'lobby' must be a bool")
+    if msg_type == "PLAYER_JOINED" and payload.get("lobby") is not None:
+        require(isinstance(payload["lobby"], bool), "MALFORMED", "'lobby' must be a bool")
+
     if msg_type == "TIME_SYNC" and payload.get("gate") is not None:
         require(
             isinstance(payload["gate"], bool),

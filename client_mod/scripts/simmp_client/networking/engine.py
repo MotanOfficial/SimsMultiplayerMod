@@ -75,6 +75,8 @@ class ClientEngine:
         frame_limit=MAX_FRAME_BYTES,
         pending_limit=64,
         logger=None,
+        want_host=None,
+        lobby=False,
     ):
         self._host = host
         self._port = port
@@ -86,6 +88,8 @@ class ClientEngine:
         self._connect_timeout = connect_timeout
         self._frame_limit = frame_limit
         self._pending_limit = pending_limit
+        self._want_host = want_host
+        self._lobby = bool(lobby)
         self.logger = logger or _make_logger("simmp.client.net")
 
         self._recv = collections.deque()
@@ -294,7 +298,13 @@ class ClientEngine:
                 self.logger.info("[MP][NET] Connected to %s:%s", self._host, self._port)
                 try:
                     self._send_frame(
-                        msg.make_hello(self._client_name, self._client_version, client_id=self._client_id)
+                        msg.make_hello(
+                            self._client_name,
+                            self._client_version,
+                            client_id=self._client_id,
+                            want_host=self._want_host,
+                            lobby=True if self._lobby else None,
+                        )
                     )
                     self._resend_pending()
                     self._read_loop(sock)

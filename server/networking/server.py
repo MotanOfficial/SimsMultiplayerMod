@@ -28,11 +28,13 @@ class MPServer:
         interaction_max_duration=300.0,
         ghost_ownership_ttl=60.0,
         status_file=None,
+        min_players=2,
     ):
         self.host = host
         self.port = port
         self.logger = logger or logging.getLogger("simmp.server")
-        self.session = Session()
+        self.min_players = max(1, int(min_players))
+        self.session = Session(min_players=self.min_players)
         self.handlers = Handlers(self)
         self.travel = TravelCoordinator(self, logger=self.logger)
         self.connections = set()
@@ -200,16 +202,17 @@ class MPServer:
                 entry["clock"] = clock
             rooms.append(entry)
         for player in self.session.players.values():
-            players.append(
-                {
-                    "player_id": player.player_id,
-                    "name": player.name,
-                    "connected": player.connected,
-                    "room_id": player.room_id,
-                    "joined_at": player.joined_at,
-                    "presence": player.presence,
-                }
-            )
+            entry = {
+                "player_id": player.player_id,
+                "name": player.name,
+                "connected": player.connected,
+                "room_id": player.room_id,
+                "joined_at": player.joined_at,
+                "presence": player.presence,
+            }
+            if player.is_lobby:
+                entry["lobby"] = True
+            players.append(entry)
         return {
             "since": self._started_at,
             "server_time": time.time(),

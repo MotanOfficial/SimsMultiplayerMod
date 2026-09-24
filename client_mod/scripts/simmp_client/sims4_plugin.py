@@ -27,6 +27,8 @@ def _apply_config(config):
     cheat_commands.configure_funds_sync(config["sync_funds"])
     cheat_commands.configure_build_sync(config["build_sync"])
     client.autonomy_suppression = config["autonomy_suppression"]
+    client.deep_hooks = config.get("deep_hooks", True)
+    client.want_host = config.get("want_host", True)
     cheat_commands.configure_ui(config["ui_dialogs"])
     client.auto_reconnect = config["auto_reconnect"]
     client.reconnect_backoff_min = config["reconnect_backoff_min"]
@@ -102,13 +104,21 @@ def install():
 
     global _auto_connect_config
     cfg_path = find_config_file()
-    if not cfg_path:
-        return True
+    config = None
+    if cfg_path:
+        try:
+            config = load_config(cfg_path)
+        except ConfigError:
+            config = None
 
-    try:
-        config = load_config(cfg_path)
-    except ConfigError:
-        return True
+    # Deep Overrides only when config enables them (default True when omitted).
+    deep_enabled = True if config is None else bool(config.get("deep_hooks", True))
+    if deep_enabled:
+        try:
+            from simmp_client import deep as deep_hooks
+            deep_hooks.install()
+        except Exception:
+            pass
 
     if config is None or not config.get("auto_connect"):
         return True

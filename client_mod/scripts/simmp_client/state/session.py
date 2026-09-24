@@ -97,11 +97,14 @@ class LocalSession:
 
     def apply_player_joined(self, payload):
         self.room_id = payload["room_id"]
-        self.room_players[payload["player_id"]] = {
+        entry = {
             "player_id": payload["player_id"],
             "name": payload["name"],
             "connected": True,
         }
+        if payload.get("lobby"):
+            entry["lobby"] = True
+        self.room_players[payload["player_id"]] = entry
 
     def apply_player_left(self, payload):
         self.room_id = payload["room_id"]
