@@ -118,6 +118,8 @@ def install_client_send_message_hooks():
                 "FOCUS",
                 "HOVERTIP_CREATED",
                 "SET_SIM_ACTIVE",
+                # Native SetGameTime fan-out left joiners frozen on pause (M40).
+                "SET_GAME_TIME",
                 "CLIENT_CREATE",
                 "CLIENT_DELETE",
                 "LIVE_DRAG_START",

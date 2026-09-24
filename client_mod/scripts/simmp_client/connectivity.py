@@ -107,8 +107,6 @@ class MultiplayerClient:
         self._ready_pending_reason = ""
         self.clock_interval = 1.5
         self._last_clock_tick = 0.0
-        self._last_absolute_time_sync = 0.0
-        self._absolute_time_interval = 5.0
         self._clock_echo_until = 0.0
         self._gate_open_since = 0.0
         self._clock_echo_window = 2.0
@@ -601,24 +599,6 @@ class MultiplayerClient:
                 self.time_speed = local
                 self._log("TIME", "TIME_SPEED %s (local change)" % local)
 
-        # Host: periodically push absolute sim time so joiners do not drift
-        # minutes ahead between pause snaps.
-        if (
-            getattr(self, "_deep", None) is not None
-            and getattr(self._deep, "is_host", False)
-            and local
-            and local > 0
-            and now - self._last_absolute_time_sync >= self._absolute_time_interval
-        ):
-            self._last_absolute_time_sync = now
-            try:
-                from simmp_client.deep import clock as deep_clock
-
-                if deep_clock.broadcast_absolute_game_time():
-                    pass
-            except Exception:
-                pass
-
     def _current_zone_id(self):
         try:
             return game_hooks.current_zone_id()
@@ -985,14 +965,11 @@ class MultiplayerClient:
             else:
                 if was_closed:
                     self._gate_open_since = now
-                # Always apply the authoritative room speed when local differs.
-                # The old echo-window skip updated time_speed (UI "paused")
-                # without touching the clock — joiners kept moving while the
-                # HUD said paused, and pause/resume only worked on the host.
-                local = game_hooks.get_clock_speed()
-                desired = payload["speed"]
-                if local is None or local != desired or was_closed:
-                    self._apply_room_speed(desired)
+                # Always apply the authoritative room speed. Skipping when
+                # local==desired left joiners visually paused after a
+                # push_speed(PAUSED) barrier that set_clock_speed alone could
+                # not clear (M40 SetGameTime / build-buy fallout).
+                self._apply_room_speed(payload["speed"])
             self._log("SYNC", "TIME_SYNC speed=%s by=%s gate=%s" % (
                 payload["speed"],
                 payload.get("player_id"),

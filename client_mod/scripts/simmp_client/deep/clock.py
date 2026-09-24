@@ -53,13 +53,34 @@ def apply_clock_speed_local(speed):
         game_clock = services.game_clock_service()
         if game_clock is None:
             return None
-        mode = ClockSpeedMode(int(speed))
+        speed_i = int(speed)
+        mode = ClockSpeedMode(speed_i)
+        # push_speed(PAUSED) barriers (build-buy / UI) survive a bare
+        # set_clock_speed(NORMAL). Clear them before forcing a room resume so
+        # joiners are not stuck paused after TIME_SYNC speed>=1.
+        if speed_i > 0:
+            pop = getattr(game_clock, "pop_speed", None)
+            if pop is not None:
+                for _ in range(8):
+                    cur = getattr(game_clock, "clock_speed", None)
+                    cur_i = int(getattr(cur, "value", cur) if cur is not None else -1)
+                    if cur_i != 0:
+                        break
+                    try:
+                        pop(ClockSpeedMode.PAUSED)
+                    except TypeError:
+                        try:
+                            pop(ClockSpeedMode.PAUSED, reason="simmp_clear")
+                        except Exception:
+                            break
+                    except Exception:
+                        break
         setter = getattr(game_clock, "set_clock_speed", None)
         if setter is None:
             return None
         setter(mode)
         applied = getattr(game_clock, "clock_speed", None)
-        return int(getattr(applied, "value", int(speed)))
+        return int(getattr(applied, "value", speed_i))
     except Exception:
         return None
     finally:
@@ -167,7 +188,10 @@ def install_clock_hooks():
         reason = kwargs.get("reason", args[1] if len(args) > 1 else "")
         immediate = kwargs.get("immediate", args[2] if len(args) > 2 else False)
         if reason in _IGNORED_PAUSE_REASONS or "build" in str(reason).lower():
-            return None
+            # Still clear a local pause barrier; just do not relay it.
+            if speed is not None:
+                return original(self, speed, *args, **kwargs)
+            return original(self, *args, **kwargs)
         _send_clock(CLOCK_METHOD_POP, speed if speed is not None else 0, source=source, reason=reason, immediate=immediate)
         if speed is not None:
             return original(self, speed, *args, **kwargs)
@@ -186,41 +210,20 @@ def install_clock_hooks():
 
     @Override(GameClock.pop_speed, role=Role.HOST)
     def _pop_speed_host(original, self, speed=None, *args, **kwargs):
-        reason = kwargs.get("reason", args[1] if len(args) > 1 else "")
-        if SESSION.enabled and (reason in _IGNORED_PAUSE_REASONS or "build" in str(reason).lower()):
-            return None
+        # Always allow pops so leftover pause barriers can clear.
         if speed is not None:
             return original(self, speed, *args, **kwargs)
         return original(self, *args, **kwargs)
-
-    # Joiners never author absolute clock broadcasts — host owns sim time.
-    sync_fn = getattr(GameClock, "_sync_clock_and_broadcast_gameclock", None)
-    if sync_fn is not None:
-
-        @Override(sync_fn, role=Role.JOINER)
-        def _sync_clock_joiner(original, self, *args, **kwargs):
-            return None
 
     return True
 
 
 def broadcast_absolute_game_time():
-    """Host helper: push current absolute ticks to joiners via SetGameTime."""
-    if not SESSION.enabled or not SESSION.is_host:
-        return False
-    try:
-        import services
+    """No-op placeholder — SetGameTime fan-out froze joiners on pause (M40).
 
-        game_clock = services.game_clock_service()
-        if game_clock is None:
-            return False
-        sync = getattr(game_clock, "_sync_clock_and_broadcast_gameclock", None)
-        if sync is None:
-            return False
-        sync()
-        return True
-    except Exception:
-        return False
+    Absolute tick sync will return via a dedicated message, not Client.send_message.
+    """
+    return False
 
 
 @MessageHandler(KIND_SET_CLOCK_SPEED)
@@ -243,7 +246,10 @@ def _host_set_clock_speed(wrapper):
         speed = speed_value
     method = int(body.get("method") or CLOCK_METHOD_SET)
     reason = body.get("reason") or ""
-    if reason in _IGNORED_PAUSE_REASONS or "build" in reason.lower():
+    # Ignore build-buy pause pushes only; always allow pops / explicit sets.
+    if method == CLOCK_METHOD_PUSH and (
+        reason in _IGNORED_PAUSE_REASONS or "build" in reason.lower()
+    ):
         return
     immediate = bool(body.get("immediate"))
     source = body.get("source")
