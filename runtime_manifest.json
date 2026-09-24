@@ -1,5 +1,5 @@
 {
- "version": "2026-09-23-bd60fbc",
+ "version": "2026-09-24-9c2b3c0",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -15,15 +15,239 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/commands/cheat_commands.py",
-   "sha256": "cd8e865bf6284f564c929b9ab8b1cd38a13f87c740a58238f99967bef5948f1c"
+   "sha256": "640a816433ff828a43b0d3ea1254e20ce992f3056c9db146e07629b86ec58912"
   },
   {
    "path": "client_mod/scripts/simmp_client/config.py",
-   "sha256": "ac9bab193304f204a19d2ed7e576132d84af5f3afdc91b678eea5961aaa419cb"
+   "sha256": "6c355d4941d6a44ed6c39ba09c90804b46a81e150228fd47e6b12d45c702c2b1"
   },
   {
    "path": "client_mod/scripts/simmp_client/connectivity.py",
-   "sha256": "890dba8040e8430459e9ca37dceaed74eebd322337107f3b2ed79420740ba5b0"
+   "sha256": "a2c723a4d9c68373c3e0599e9a973c9def39bc0d7022681e46bfc89736095567"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/__init__.py",
+   "sha256": "8b08a3130dd7736fc3b111c93e042d2a788283d61b32b67c4f265fe1d2323a1c"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/adventure.py",
+   "sha256": "4235498826ceac5ec6d13bbb6f2c20787acbb067a22fcc76f0e50c6c7be6f004"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/aspiration.py",
+   "sha256": "eedac0947366719563c87b1b3ad5739f9bd3645c8658743a7475dea34544072b"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/autonomy.py",
+   "sha256": "6aa5c0b4abbd36e55f548b7015ead68249c12dccead9ac9f6a4e0a0d99d9eaac"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/bills.py",
+   "sha256": "7b20956457d72ea19040bff3210812a261bb0b86ba9f4159a9f23cb2eacd2d7c"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/bucks.py",
+   "sha256": "00d812313384cc2e2426c02a6c0d52a1052c8a94f689c5718f0abc1cc2628471"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/business.py",
+   "sha256": "eaa5cd41a6da659410978aca7571490d12f4095a5d6cdf4ca6a8efc058b2c800"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/buy.py",
+   "sha256": "93e9b6c960748660d97d535ad66d470007ba10e883d47fd98ea22529135ed9ad"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/calendar.py",
+   "sha256": "ef56c5486770e189cf9277dda96c98c6163ec08b7919fb73061791099550e211"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/careers.py",
+   "sha256": "ea8ef7c27c4c328e1b6146c17191223a2799849f0092fb02e11014789daece41"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/cheats.py",
+   "sha256": "f8394c09a49c91832bd433a9545d193d982af6cfa2574f3c93e2d5dc8f664b1c"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/civic_policies.py",
+   "sha256": "8420539627a986d2121be4b21da38a3cb831be436435a755a7f551dbd4a3a28e"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/clock.py",
+   "sha256": "3d2f5350a329b2c6903c29132e31f00534f505157281db4adb301cc183744e09"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/clubs.py",
+   "sha256": "5f3c0ad94c622c3d08d13131a3784fbd72fd80e0388420d99242d4081e950419"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/custom_schedules.py",
+   "sha256": "c26f461f52c7113222a95706b6389bddc24f39af1373133262c85ba9c9b10851"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/dialogs.py",
+   "sha256": "0463eeb9572dc8d8ed901190b677f97ed2e557e1d03b4de6db16e2823441891e"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/drama.py",
+   "sha256": "0778fa5a7d5c7685754af44602f327dfd72ccc18e3084f0c6df9b0c8aa5c5ade"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/dynasty.py",
+   "sha256": "5595404940b2763603bb2f50c58eb99407200aac6a5d8f75ad6d1133eced8349"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/fame.py",
+   "sha256": "c5aebceed9983ee510625107aa7171e3463417eb843edbd9e649820bcdd7a62a"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/family_tree.py",
+   "sha256": "62fd489e337392b0619189c292d047502202aaa38b7d2e5963d60d9de1de55b0"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/game_network.py",
+   "sha256": "f2d306942d0e3098dff3d6ef1d78539a5dd81671ea14e88a9f3779ab67c3f4b2"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/genealogy.py",
+   "sha256": "3d42ace9c1e7d71fca9df92c1394aff6364fcedfe319350d49ede9ea352b3b93"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/ghost_powers.py",
+   "sha256": "9d17bf2463ce66655eb79b9de6cf46e3a3887473b118303b52f05c33f6b12c5b"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/holidays.py",
+   "sha256": "adacbccaac762d02ab899987565ed1fbaeff0b2a284fc583ed895411a2ae021f"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/horse_competition.py",
+   "sha256": "05cf39336842a72f3d407231aa76b5752edc6c71303db72acbde198a2e00a618"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/hovertip.py",
+   "sha256": "cffa715ef45d78e1a2ddd4a02894b9cbd25305a286ca5a102fd78b06ed38f381"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/interactions.py",
+   "sha256": "35c4c97d249aab23195c75602c9ad585db26d22cec9a2bb13e37d1fd3abd8142"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/inventory.py",
+   "sha256": "dbf3d4bf00bea53b6f4a16d21c86a0aef2ad8710834f10f7f44c306fa3b4c4ec"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/lighting.py",
+   "sha256": "9680d30374cbe1c6c2249043eec4f91b218fe2e05b4e7e0f8bb9e6f0c8ea5abc"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/live_drag.py",
+   "sha256": "8f82fb314a6d1f269f60988473decb8fd7de91c86bf1f6241df390b1521620b9"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/message_handler.py",
+   "sha256": "24360001957840cb36381a4e0720441a0cdd59788ce036463f2c80495bad35c0"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/milestones.py",
+   "sha256": "96e3db773524a9a3d0cfc3432c63502c59622a73ebca8837ec3e524117c04af0"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/multi_unit.py",
+   "sha256": "d74a079924d85ae614e8fd12620eb54e18cb1cd5f58b7838053e597b8141bc35"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/notebook.py",
+   "sha256": "f90858415f4fbe63c3c5818a88bc281c6411cc23f39a711fdb8bc6aef6858a73"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/objects.py",
+   "sha256": "a25e9b2f4138e732fd7a88d780f2b1d5c9a89d5bb9da20ca99a93ecd60dacd07"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/override.py",
+   "sha256": "6624f5fa3e46af48350132ffe7860e00b13ca37d650285f3cd78b4067202d03e"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/persistence.py",
+   "sha256": "6d7ad5ae8f1ad2d5a6d86c433c2eb4ba0a4d82f73a93caa2da96ec95a90432b0"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/photo.py",
+   "sha256": "d1ee4e871d6b720a1a863c03d1f21738232081b0c8cb72976b3d7124716ca95f"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/pregnancy.py",
+   "sha256": "0ddccf764d0262406c45bf1dd1e83b20daadc1c2364f30193ec5ee19d0f3ac36"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/relationship.py",
+   "sha256": "2cdd3741af075827cc8753bae8679cb0fcde692602b5be3b1c6c09a1019ed8ea"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/restaurant.py",
+   "sha256": "df91f4e9c38de14ed54bb81554af544e181a3fbefa55793f0c4541c7cb62e2c7"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/session.py",
+   "sha256": "8191a9ac972f00fee2e9a58ccc5dee78d7004723644bad17233f98ea44db5ce8"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/sim_select.py",
+   "sha256": "b626f01aef44cdb9cc872c2d158f79450475e71fa8f4fa65064a7a80b3fa8905"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/situations.py",
+   "sha256": "ef6993a6e72b123b9f69113338f12b4906f5000ce1d651b9c9d8e829563bdc73"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/small_business.py",
+   "sha256": "c4024b028f24fe049d3f78d3e6d86eac6a3fc86177637b252ebee912ad99f75a"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/social_media.py",
+   "sha256": "750014ecb5ca7b51b536779be8ac26a9d53853bd4f217c519b4c27f07683691c"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/spells.py",
+   "sha256": "2713523280ff45d2a193a60bab66db45f54b9e056278ee4709ceeccee60be0c6"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/statistics.py",
+   "sha256": "85ad8896cd33451a67cf9608f648f138cfb05a327cc9eb0595d5657857b9954c"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/timeline.py",
+   "sha256": "b4e8707511a21ae70318b1c0883c9986f8d05ffe8a1e58504c02249831977212"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/traits.py",
+   "sha256": "9682909507f18eb1ed20fff24958e7776fcac96456f1f1d833e1c108ed6e99df"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/travel.py",
+   "sha256": "a3adb3bd8ba96103c2c23c7fdd658762777c6c41eb02706955a61e875b803998"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/travel_groups.py",
+   "sha256": "6ed6481df7e6af3aeed579c170b4266261a37f8e53038e0d03d155ed4f793e98"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/university.py",
+   "sha256": "4825b68f69fc1bb2ddfc4bb7bc6f87c8b9eae79714a5e315ce956dd7794dee34"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/whims.py",
+   "sha256": "d15547096b8908129cd3031f8d18910294f773c94d00d9c24a16d42d7c8e9014"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/zone_modifier.py",
+   "sha256": "138648ec98bb75a2ef10f8cfb046b01cdbc769f24455bd300426862809f25001"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/deep/zone_spin_up.py",
+   "sha256": "28a7b417b20453c12f76a4b03f79c858a342095171bf3b1a47d26a8eb78aa6c5"
   },
   {
    "path": "client_mod/scripts/simmp_client/hooks/__init__.py",
@@ -43,7 +267,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/networking/engine.py",
-   "sha256": "e50142febd1af7b8926ef58f724f85b3880efec1e252d296c42f640fdeb494b8"
+   "sha256": "7bf0c5564238bdc7af4e4ce7d054834348d773f04f189bfc17c04f5df4130ca2"
   },
   {
    "path": "client_mod/scripts/simmp_client/notifications.py",
@@ -55,7 +279,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/sims4_plugin.py",
-   "sha256": "6036736a5e0d0abccb6e8afef28a656d1e12407fbd98280672ff8481a6003d12"
+   "sha256": "bd7c5e8d04e8c2880416563cfc944345517f83adc95eb6a823e3f011507a1494"
   },
   {
    "path": "client_mod/scripts/simmp_client/state/__init__.py",
@@ -71,7 +295,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/state/session.py",
-   "sha256": "87af7a2c19ecff9fefda5f601b488ff9fdd47164c6af03fe351ea9b8fd8c73ec"
+   "sha256": "90c154b74e1a1df9a0cda592261d0aaa01f0c839c9b398026e096b4f08ea1827"
   },
   {
    "path": "client_mod/scripts/simmp_client/state/world.py",
@@ -91,7 +315,19 @@
   },
   {
    "path": "protocol/simmp/constants.py",
-   "sha256": "f84255330df218a5f6f95a22c85ca42125ce3fe6fcb17bd6875d864a71fb166c"
+   "sha256": "236433925c9ce44493a02d491ac0b19358953f8508fc59b553ced32aae378481"
+  },
+  {
+   "path": "protocol/simmp/deep/__init__.py",
+   "sha256": "01c1e8e926f7be2fc726a933aabc61718d221461846e882d5d3f383fb35a29f4"
+  },
+  {
+   "path": "protocol/simmp/deep/messages.py",
+   "sha256": "19edcc149eba7aeae9db2a8be6fa3c790fbd744921ae6293fd933f39b4c7e46d"
+  },
+  {
+   "path": "protocol/simmp/deep/wire.py",
+   "sha256": "7e593b563ab6fec400de3fd97425347f2ada9e0f50a24656292a2031a80cc9e0"
   },
   {
    "path": "protocol/simmp/framing.py",
@@ -99,11 +335,11 @@
   },
   {
    "path": "protocol/simmp/messages.py",
-   "sha256": "dbf599ec6f6e3e8a5e3fc84677da35d424fe8ac2fee528fe7bde245ff44687d1"
+   "sha256": "ce78a3870372a4d207e56507318c163f3cd97657b014a747d17e91914c34aef1"
   },
   {
    "path": "protocol/simmp/validation.py",
-   "sha256": "321fbd92609e9e9f011b6094c82ef6f24d538f629db41407d11e645a99a462bc"
+   "sha256": "3cec0ca8e79f3f06caaa3cb450199741729eca008edb3f175f57b54723f48be2"
   },
   {
    "path": "server/__init__.py",
@@ -127,7 +363,7 @@
   },
   {
    "path": "server/networking/server.py",
-   "sha256": "bac48a2ac5d5f118788b6eccabc93fbfe85265c179a8003ec9070ce897ec79fb"
+   "sha256": "b9243364c4725effdefdbc6164dd27dc771004d1582bdeee04b58800fde5ceaf"
   },
   {
    "path": "server/protocol/__init__.py",
@@ -135,7 +371,7 @@
   },
   {
    "path": "server/protocol/handlers.py",
-   "sha256": "4a9f51ac9e0814d2d3864e8616f126650730960a59feed21f52fd80f9596c1f5"
+   "sha256": "da056e47eaa7d22757685846988a22b2a0cf7d076ea19d5dbaa8c8fc9206d4e8"
   },
   {
    "path": "server/rooms/__init__.py",
@@ -151,7 +387,7 @@
   },
   {
    "path": "server/state/session.py",
-   "sha256": "f106af4c064bd6131f535d3016bdb455f7f29be4412e10d44ac03e6d3df3908e"
+   "sha256": "1f39b2a2d7146f8edd6c2f71f4fd8b5a6cf7f83781aded1ef58edc8139f66a95"
   },
   {
    "path": "server/travel/__init__.py",
@@ -179,7 +415,7 @@
   },
   {
    "path": "tools/launcher_lobby.py",
-   "sha256": "20600e79caef6dfe53aa00d63cb8dbd04afd161fd510631a00f63f5517e8f27a"
+   "sha256": "ebe4105f6a7d92402e801474e9858d6ba9f32896c2870bfcaf4556a9da9180ac"
   },
   {
    "path": "tools/launcher_setup.py",
@@ -219,7 +455,7 @@
   },
   {
    "path": "tools/lobby.py",
-   "sha256": "892f4383aef0e2855af8796501099580308d134714652a23f8ea639db577864a"
+   "sha256": "c6081b743e24e377a84e75e823fb179a749cd3adddc8e7cb36077a337e516989"
   },
   {
    "path": "tools/save_metadata.py",
