@@ -1,5 +1,5 @@
 {
- "version": "2026-09-24-7b9aa05",
+ "version": "2026-09-24-1079db7",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -19,11 +19,11 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/config.py",
-   "sha256": "6c355d4941d6a44ed6c39ba09c90804b46a81e150228fd47e6b12d45c702c2b1"
+   "sha256": "0c7d2803395cc3c94bf563d11b07bf8e4c7ebf646e30c37c0646c7a27d490595"
   },
   {
    "path": "client_mod/scripts/simmp_client/connectivity.py",
-   "sha256": "1ad7653fe12016ffaea96e322c785d2309022ce516e8527125858fca4fb57a3c"
+   "sha256": "dba49a6ea67b5dca0729c19840fdf2de557e8831d240184f621f58aa64ba8841"
   },
   {
    "path": "client_mod/scripts/simmp_client/deep/__init__.py",
@@ -75,7 +75,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/deep/clock.py",
-   "sha256": "3d2f5350a329b2c6903c29132e31f00534f505157281db4adb301cc183744e09"
+   "sha256": "ea0e45d2d213f8529bc4c5bf60c16b61b4440b89a1610fd59fee4351660ff925"
   },
   {
    "path": "client_mod/scripts/simmp_client/deep/clubs.py",
@@ -255,7 +255,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/hooks/game_hooks.py",
-   "sha256": "f4f7a7f23d198dad1f48bd49a5a329d675bd1c8e6c64ecb8708a79dd9d16e973"
+   "sha256": "62299264ad830212b4cd93e895f5c68d5f96eee1b71da577b1174b2235141034"
   },
   {
    "path": "client_mod/scripts/simmp_client/logfile.py",
@@ -279,7 +279,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/sims4_plugin.py",
-   "sha256": "8c6510ff29c25134c5680a8b59ae8e484b6b828988cffab0c5ee72d23f20ee3c"
+   "sha256": "1a2d43ad11733e4ca85a740cb19d07a1ee451320d694de04a71faab2802ca988"
   },
   {
    "path": "client_mod/scripts/simmp_client/state/__init__.py",
@@ -407,7 +407,7 @@
   },
   {
    "path": "tools/launcher_bridge.py",
-   "sha256": "3bcc83c645195a9de3aeae4b2356dddfd039795cbb64653660ae9fa317d0beb1"
+   "sha256": "49ac206e9f89a345801973f76ad17b648292741e313ce4901c31228446131e04"
   },
   {
    "path": "tools/launcher_diag.py",
@@ -415,7 +415,7 @@
   },
   {
    "path": "tools/launcher_lobby.py",
-   "sha256": "9a0250a5307493e15315a17029d21afaba95eb8ea1d0ff607e876f15b5d704da"
+   "sha256": "cfcf7fb069f7f53b2eb46e3f358ad0df2338e4c909121d5c3d78248d80c014df"
   },
   {
    "path": "tools/launcher_setup.py",
