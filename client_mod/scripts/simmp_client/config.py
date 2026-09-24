@@ -29,11 +29,11 @@ DEFAULT_CONFIG = {
     "presence_interval": 5.0,
     "presence_ttl": 30.0,
     "auto_accept_travel": True,
-    # Legacy sampler sync defaults off — deep_hooks is the primary path.
-    # Re-enable these only for an explicit legacy fallback session.
+    # Legacy world/funds/build stay off — deep_hooks is primary for authority.
+    # Interaction mirror stays on so peers can see Sleep/Sit/etc.
     "world_sync": False,
     "world_interval": 5.0,
-    "interaction_sync": False,
+    "interaction_sync": True,
     "interaction_interval": 5.0,
     "sync_funds": False,
     "funds_interval": 2.0,

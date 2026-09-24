@@ -98,8 +98,9 @@ class LocalSessionPresenceTtlTests(unittest.TestCase):
 
 
 class AutoConnectScheduleTests(unittest.TestCase):
-    """The stored auto-connect config must survive a failed schedule so the
-    first mp.* command can retry instead of silently never connecting."""
+    """Auto-connect must keep the target until TCP succeeds — a nested
+    one-shot that returned a handle but never fired used to clear config
+    permanently until the player typed mp.autoconnect."""
 
     def setUp(self):
         fake = types.ModuleType("simmp_client.commands.cheat_commands")
@@ -123,28 +124,27 @@ class AutoConnectScheduleTests(unittest.TestCase):
                 sys.modules[name] = module
         sims4_plugin._auto_connect_config = None
 
-    def test_successful_schedule_consumes_config(self):
-        with mock.patch.object(sims4_plugin, "_apply_config", return_value=mock.Mock()), \
-                mock.patch.object(
-                    game_hooks, "add_one_off_real_time_alarm", return_value="handle"
-                ):
+    def test_schedule_keeps_config_until_tcp(self):
+        client = mock.Mock()
+        with mock.patch.object(sims4_plugin, "_apply_config", return_value=client):
             self.assertTrue(sims4_plugin.schedule_auto_connect())
-        self.assertIsNone(sims4_plugin._auto_connect_config)
-
-    def test_failed_schedule_keeps_config_for_retry(self):
-        with mock.patch.object(sims4_plugin, "_apply_config", return_value=mock.Mock()), \
-                mock.patch.object(
-                    game_hooks, "add_one_off_real_time_alarm", return_value=None
-                ):
-            self.assertFalse(sims4_plugin.schedule_auto_connect())
         self.assertIsNotNone(sims4_plugin._auto_connect_config)
+        client.begin_preconnect_gate.assert_called()
+
+    def test_try_pending_connect_clears_on_success(self):
+        client = mock.Mock()
+        client.engine = None
+        client._pending_connect_host = "127.0.0.1"
+        client._pending_connect_port = 8799
+        client.connect.return_value = True
+        sys.modules["simmp_client.commands.cheat_commands"].get_client = lambda: client
+        self.assertTrue(sims4_plugin.try_pending_connect(client))
+        self.assertIsNone(sims4_plugin._auto_connect_config)
+        client.connect.assert_called_once_with("127.0.0.1", 8799)
 
     def test_schedule_arms_preconnect_gate(self):
         client = mock.Mock()
-        with mock.patch.object(sims4_plugin, "_apply_config", return_value=client), \
-                mock.patch.object(
-                    game_hooks, "add_one_off_real_time_alarm", return_value="handle"
-                ):
+        with mock.patch.object(sims4_plugin, "_apply_config", return_value=client):
             self.assertTrue(sims4_plugin.schedule_auto_connect())
         client.begin_preconnect_gate.assert_called()
 

@@ -503,7 +503,18 @@ def set_clock_speed(speed):
     `speed` is a ClockSpeedMode int (0=paused, 1=normal, 2, 3). Returns the
     applied speed int on success, else None. Uses the public API
     `game_clock.set_clock_speed(ClockSpeedMode.X)`.
+
+    When deep joiner Overrides are installed, goes through
+    ``deep.clock.apply_clock_speed_local`` so TIME_SYNC / force-pause can
+    actually change the local clock instead of only relaying to the host.
     """
+    try:
+        from simmp_client.deep import clock as deep_clock
+
+        if getattr(deep_clock, "apply_clock_speed_local", None) is not None:
+            return deep_clock.apply_clock_speed_local(speed)
+    except Exception:
+        pass
     try:
         import services
         from clock import ClockSpeedMode

@@ -33,81 +33,99 @@ def _apply_config(config):
     client.auto_reconnect = config["auto_reconnect"]
     client.reconnect_backoff_min = config["reconnect_backoff_min"]
     client.reconnect_backoff_max = config["reconnect_backoff_max"]
+    # Keep connect target on the client so the preconnect tick can dial
+    # without depending on a nested one-shot alarm that may never fire.
+    client._pending_connect_host = config["host"]
+    client._pending_connect_port = config["port"]
     return client
 
 
-def _safe_connect(client, host, port, attempt=1, max_attempts=8):
-    """Connect once; on failure log and re-arm so auto-connect is not silent."""
-    from simmp_client.hooks import game_hooks
+def try_pending_connect(client=None):
+    """Connect now if auto-connect is still pending. Returns True on success.
 
-    try:
-        ok = client.connect(host, port)
-    except Exception as exc:
-        ok = False
-        try:
-            client._log("ERROR", "auto-connect to %s:%s failed: %s" % (host, port, exc))
-        except Exception:
-            pass
-    else:
-        if not ok:
-            try:
-                client._log(
-                    "ERROR",
-                    "auto-connect to %s:%s failed (attempt %s/%s)"
-                    % (host, port, attempt, max_attempts),
-                )
-            except Exception:
-                pass
-    if ok or attempt >= max_attempts:
-        return
-    delay = min(2.0 * attempt, 15.0)
-    game_hooks.add_one_off_real_time_alarm(
-        client,
-        delay,
-        lambda *args: _safe_connect(client, host, port, attempt + 1, max_attempts),
-    )
-
-
-def schedule_auto_connect():
-    """Apply the stored config and arm the one-shot connect alarm.
-
-    Returns True when the alarm was actually scheduled. The alarm service may
-    not be ready during mod import, so the config is only consumed on success;
-    the preconnect gate alarm and the first `mp.*` command both retry.
+    Unlike the old one-shot alarm path, this is safe to call every sync tick:
+    it no-ops when already connected / no target, and only clears the stored
+    config after TCP is up.
     """
     global _auto_connect_config
-    if _auto_connect_config is None:
-        return False
     from simmp_client.commands import cheat_commands
-    from simmp_client.hooks import game_hooks
 
-    config = _auto_connect_config
-    client = _apply_config(config)
-    # Keep force-pause armed even if the connect one-shot fails to schedule.
+    if client is None:
+        client = cheat_commands.get_client()
+    engine = getattr(client, "engine", None)
+    if engine is not None and engine.connected:
+        _auto_connect_config = None
+        client._pending_connect_host = None
+        client._pending_connect_port = None
+        return True
+    host = getattr(client, "_pending_connect_host", None)
+    port = getattr(client, "_pending_connect_port", None)
+    if not host or port is None:
+        if _auto_connect_config is None:
+            return False
+        client = _apply_config(_auto_connect_config)
+        host = client._pending_connect_host
+        port = client._pending_connect_port
+    if not host or port is None:
+        return False
     try:
         client.begin_preconnect_gate()
     except Exception:
         pass
-    host = config["host"]
-    port = config["port"]
-    handle = game_hooks.add_one_off_real_time_alarm(
-        client,
-        2.0,
-        lambda *args: _safe_connect(client, host, port),
-    )
-    if handle is None:
+    try:
+        ok = client.connect(host, port)
+    except Exception as exc:
+        try:
+            client._log("ERROR", "auto-connect to %s:%s failed: %s" % (host, port, exc))
+        except Exception:
+            pass
         return False
-    _auto_connect_config = None
+    if ok:
+        _auto_connect_config = None
+        client._pending_connect_host = None
+        client._pending_connect_port = None
+        try:
+            client._log("NET", "auto-connected to %s:%s" % (host, port))
+        except Exception:
+            pass
+        return True
+    try:
+        client._log("ERROR", "auto-connect to %s:%s failed" % (host, port))
+    except Exception:
+        pass
+    return False
+
+
+def schedule_auto_connect():
+    """Apply config and arm preconnect; connect is driven by the sync tick.
+
+    Returns True when a pending connect target is armed. The alarm service may
+    not be ready during mod import — config is kept until TCP succeeds so a
+    handle that never fires cannot permanently disable auto-connect.
+    """
+    global _auto_connect_config
+    if _auto_connect_config is None:
+        # Still retry from client-stored host/port after a prior arm.
+        from simmp_client.commands import cheat_commands
+
+        client = cheat_commands.get_client()
+        if getattr(client, "_pending_connect_host", None):
+            try:
+                client.begin_preconnect_gate()
+            except Exception:
+                pass
+            return True
+        return False
+    client = _apply_config(_auto_connect_config)
+    try:
+        client.begin_preconnect_gate()
+    except Exception:
+        pass
     return True
 
 
 def _install_zone_ready_retry():
-    """Retry auto-connect / preconnect gate when a lot finishes loading.
-
-    Import-time alarms often fail (service not up yet). Without a zone-ready
-    hook the only retry was the first ``mp.*`` cheat — Continue into a save
-    never paused and never connected on its own.
-    """
+    """Retry auto-connect / preconnect gate when a lot finishes loading."""
     candidates = (
         ("zone", "Zone", "on_loading_screen_animation_finished"),
         ("zone", "Zone", "on_hit_their_marks"),
@@ -127,6 +145,7 @@ def _install_zone_ready_retry():
                 def wrapped(self, *args, **kwargs):
                     try:
                         schedule_auto_connect()
+                        try_pending_connect()
                     except Exception:
                         pass
                     try:
@@ -164,7 +183,6 @@ def install():
         except ConfigError:
             config = None
 
-    # Deep Overrides only when config enables them (default True when omitted).
     deep_enabled = True if config is None else bool(config.get("deep_hooks", True))
     if deep_enabled:
         try:
@@ -177,9 +195,6 @@ def install():
         return True
 
     _auto_connect_config = config
-    # Apply settings + arm preconnect force-pause immediately so Continue into
-    # a save stays paused even when the alarm service is not ready yet at
-    # import (schedule_auto_connect retries from the gate tick / zone load / mp.*).
     try:
         client = _apply_config(config)
         client.begin_preconnect_gate()

@@ -256,16 +256,24 @@ class LauncherBridge(SetupMixin, LobbyMixin, DiagnosticsMixin, QObject):
         import tempfile
 
         temp_root = os.path.normcase(os.path.abspath(tempfile.gettempdir()))
+        repo_tests = os.path.normcase(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "tests"))
+        )
 
-        def _is_temp(path):
+        def _is_unusable_mods(path):
             if not path:
                 return False
             abs_path = os.path.normcase(os.path.abspath(path))
-            return abs_path == temp_root or abs_path.startswith(temp_root + os.sep)
+            if abs_path == temp_root or abs_path.startswith(temp_root + os.sep):
+                return True
+            if abs_path == repo_tests or abs_path.startswith(repo_tests + os.sep):
+                return True
+            leaf = os.path.basename(abs_path.rstrip("\\/"))
+            return leaf.lower() != "mods"
 
         for key in ("game", "mods", "saves"):
             current = getattr(self, "_%s" % key)
-            if not current or (key == "mods" and _is_temp(current)):
+            if not current or (key == "mods" and _is_unusable_mods(current)):
                 guessed = self._guess(key) or ""
                 if guessed:
                     setattr(self, "_%s" % key, guessed)

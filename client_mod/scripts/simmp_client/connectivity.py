@@ -78,6 +78,9 @@ class MultiplayerClient:
         # and auto-connect retries work as soon as the save loads — without
         # waiting for a manual mp.* cheat command.
         self._preconnect_gate = False
+        self._pending_connect_host = None
+        self._pending_connect_port = None
+        self._next_pending_connect_at = 0.0
         self._reconnect_attempt = 0
         self._next_reconnect_at = 0.0
         self._alarm_started_at = 0.0
@@ -1177,18 +1180,22 @@ class MultiplayerClient:
     def _on_alarm(self, *args):
         try:
             self._last_alarm_tick = time.time()
-            # Retry auto-connect while the preconnect gate is armed and the
-            # alarm service is finally available (import-time schedule often
-            # fails before the zone is up).
+            # Drive auto-connect from the live sync tick. Nested one-shot
+            # alarms used to "succeed" (non-None handle) then never fire,
+            # clearing the config permanently until mp.autoconnect.
             if self._preconnect_gate:
                 engine = self.engine
                 if engine is None or not engine.connected:
-                    try:
-                        from simmp_client import sims4_plugin
+                    now = time.time()
+                    if now >= self._next_pending_connect_at:
+                        self._next_pending_connect_at = now + 3.0
+                        try:
+                            from simmp_client import sims4_plugin
 
-                        sims4_plugin.schedule_auto_connect()
-                    except Exception:
-                        pass
+                            sims4_plugin.schedule_auto_connect()
+                            sims4_plugin.try_pending_connect(self)
+                        except Exception:
+                            pass
             engine = self.engine
             if engine is not None and engine.connected:
                 self._reconnect_attempt = 0

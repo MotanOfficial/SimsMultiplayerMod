@@ -347,9 +347,9 @@ class LobbyMixin(object):
     def _canonical_mods_folder(self):
         """Mods folder the game actually reads Sims4Multiplayer.json from.
 
-        Prefer the real EA Documents Mods path. Never trust a Temp/tmp path
-        (a bad browse or leftover settings.json used to write config where
-        the game never looks, so Continue-into-save never auto-connected).
+        Prefer the real EA Documents Mods path. Never trust Temp paths or
+        leftover test/repo folders (unit tests once polluted settings.json
+        with ``tests/_tmp_canonical_mods``).
         """
         import tempfile
 
@@ -360,19 +360,30 @@ class LobbyMixin(object):
             guessed = ""
         configured = (self._mods or "").strip()
         temp_root = os.path.normcase(os.path.abspath(tempfile.gettempdir()))
+        repo_tests = os.path.normcase(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "tests"))
+        )
 
-        def _is_temp(path):
+        def _is_unusable(path):
             if not path:
                 return True
             abs_path = os.path.normcase(os.path.abspath(path))
-            return abs_path == temp_root or abs_path.startswith(temp_root + os.sep)
+            if abs_path == temp_root or abs_path.startswith(temp_root + os.sep):
+                return True
+            if abs_path == repo_tests or abs_path.startswith(repo_tests + os.sep):
+                return True
+            # Must look like a Sims 4 Mods folder when EA path is known.
+            leaf = os.path.basename(abs_path.rstrip("\\/"))
+            if leaf.lower() != "mods":
+                return True
+            return False
 
-        if configured and not _is_temp(configured) and os.path.isdir(configured):
+        if configured and not _is_unusable(configured) and os.path.isdir(configured):
             return configured
-        if guessed and not _is_temp(guessed) and os.path.isdir(guessed):
+        if guessed and not _is_unusable(guessed) and os.path.isdir(guessed):
             if configured and configured != guessed:
                 self._note(
-                    "Mods path %s is unusable (temp/missing); using %s for config."
+                    "Mods path %s is unusable; using %s for config."
                     % (configured, guessed),
                     kind="error",
                 )
@@ -382,10 +393,9 @@ class LobbyMixin(object):
                 except Exception:
                     pass
             return guessed
-        if configured and not _is_temp(configured):
+        if configured and not _is_unusable(configured):
             return configured
         return None
-
     def _mod_scripts_root(self, mods):
         return os.path.join(mods, "Sims4Multiplayer", "Scripts")
 
@@ -424,7 +434,7 @@ class LobbyMixin(object):
             ("deep_hooks", True, config.get("deep_hooks")),
             ("want_host", is_host, config.get("want_host")),
             ("world_sync", False, config.get("world_sync")),
-            ("interaction_sync", False, config.get("interaction_sync")),
+            ("interaction_sync", True, config.get("interaction_sync")),
             ("sync_funds", False, config.get("sync_funds")),
             ("build_sync", False, config.get("build_sync")),
             ("min_players", 2, config.get("min_players")),
@@ -444,7 +454,7 @@ class LobbyMixin(object):
                 text = handle.read()
         except OSError:
             return False
-        return "begin_preconnect_gate" in text and "schedule_auto_connect" in text
+        return "try_pending_connect" in text and "begin_preconnect_gate" in text
 
     def _preflight_launch(self, role, host, port, name):
         """Validate Mods path, installed scripts, and written config before launch.
@@ -542,9 +552,10 @@ class LobbyMixin(object):
             # Deep host-authoritative path (primary).
             "deep_hooks": True,
             "want_host": is_host,
-            # Legacy sampler paths — off while deep is primary.
+            # Interaction mirror stays on so peers see Sleep/Sit/etc.
+            # (deep pie-menu relay does not fan out host autonomy sleep).
             "world_sync": False,
-            "interaction_sync": False,
+            "interaction_sync": True,
             "sync_funds": False,
             "build_sync": False,
         }

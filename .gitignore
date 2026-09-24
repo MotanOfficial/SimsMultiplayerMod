@@ -16,3 +16,5 @@ dist/
 htmlcov/
 .idea/
 .vscode/
+_scratch_*/
+

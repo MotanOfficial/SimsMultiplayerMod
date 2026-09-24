@@ -177,7 +177,7 @@ class LauncherGuiTests(unittest.TestCase):
         self.assertTrue(host_cfg["deep_hooks"])
         self.assertTrue(host_cfg["want_host"])
         self.assertFalse(host_cfg["world_sync"])
-        self.assertFalse(host_cfg["interaction_sync"])
+        self.assertTrue(host_cfg["interaction_sync"])
         self.assertFalse(host_cfg["sync_funds"])
         self.assertFalse(host_cfg["build_sync"])
         app._write_config("10.0.0.2", 8765, "Bob", role="join")
@@ -191,10 +191,12 @@ class LauncherGuiTests(unittest.TestCase):
         import shutil
 
         app = self._app()
-        # Must not live under tempfile.gettempdir() or the resolver rejects it.
-        real_mods = os.path.join(os.path.dirname(__file__), "_tmp_canonical_mods")
+        # Leaf must be "Mods" and not under Temp or tests/.
+        real_mods = os.path.join(os.path.dirname(os.path.dirname(__file__)), "_scratch_ea", "Mods")
         os.makedirs(real_mods, exist_ok=True)
-        self.addCleanup(lambda: shutil.rmtree(real_mods, ignore_errors=True))
+        self.addCleanup(
+            lambda: shutil.rmtree(os.path.dirname(real_mods), ignore_errors=True)
+        )
         app._mods = os.path.join(tempfile.gettempdir(), "tmpe07yk3zi_fake")
         from launcher_common import RUNTIME
 
@@ -230,9 +232,11 @@ class LauncherGuiTests(unittest.TestCase):
         import shutil
 
         app = self._app()
-        mods = os.path.join(os.path.dirname(__file__), "_tmp_preflight_mods")
+        mods = os.path.join(os.path.dirname(os.path.dirname(__file__)), "_scratch_preflight_mods", "Mods")
         os.makedirs(mods, exist_ok=True)
-        self.addCleanup(lambda: shutil.rmtree(mods, ignore_errors=True))
+        self.addCleanup(
+            lambda: shutil.rmtree(os.path.dirname(mods), ignore_errors=True)
+        )
         app._canonical_mods_folder = lambda: mods
         app._write_config("127.0.0.1", 8765, "Alice", role="join")
         ok, errors = app._preflight_launch("join", "127.0.0.1", 8765, "Alice")
@@ -243,9 +247,11 @@ class LauncherGuiTests(unittest.TestCase):
         import shutil
 
         app = self._app()
-        mods = os.path.join(os.path.dirname(__file__), "_tmp_preflight_ok")
+        mods = os.path.join(os.path.dirname(os.path.dirname(__file__)), "_scratch_preflight_ok", "Mods")
         os.makedirs(mods, exist_ok=True)
-        self.addCleanup(lambda: shutil.rmtree(mods, ignore_errors=True))
+        self.addCleanup(
+            lambda: shutil.rmtree(os.path.dirname(mods), ignore_errors=True)
+        )
         app._canonical_mods_folder = lambda: mods
         self._plant_mod_scripts(mods)
         app._write_config("10.0.0.2", 8799, "Bob", role="join")
@@ -258,9 +264,11 @@ class LauncherGuiTests(unittest.TestCase):
         from unittest import mock
 
         app = self._app()
-        mods = os.path.join(os.path.dirname(__file__), "_tmp_preflight_block")
+        mods = os.path.join(os.path.dirname(os.path.dirname(__file__)), "_scratch_preflight_block", "Mods")
         os.makedirs(mods, exist_ok=True)
-        self.addCleanup(lambda: shutil.rmtree(mods, ignore_errors=True))
+        self.addCleanup(
+            lambda: shutil.rmtree(os.path.dirname(mods), ignore_errors=True)
+        )
         app._canonical_mods_folder = lambda: mods
         app._game = ""
         with mock.patch("subprocess.Popen") as popen, mock.patch("os.startfile") as startfile:

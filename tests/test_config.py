@@ -95,7 +95,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(loaded["world_sync"], False)
         self.assertEqual(loaded["deep_hooks"], True)
         self.assertEqual(loaded["world_interval"], 5.0)
-        self.assertEqual(loaded["interaction_sync"], False)
+        self.assertEqual(loaded["interaction_sync"], True)
         self.assertEqual(loaded["sync_funds"], False)
         self.assertEqual(loaded["build_sync"], False)
         self.assertEqual(loaded["want_host"], True)

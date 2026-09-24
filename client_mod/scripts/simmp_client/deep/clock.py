@@ -4,6 +4,10 @@ Joiner: Override set_clock_speed / push_speed / pop_speed → protobuf to host.
 Host: apply via game_clock_service. Host's own clock changes stay local and
 are already fanned out through Client.send_message / GameNetworkMessage when
 the distributor emits SetGameTime ops.
+
+TIME_SYNC / force-pause apply through ``apply_clock_speed_local`` so the
+joiner Override does not swallow authoritative room speed (that bug made
+``Applied room speed 1 -> 0`` and left pause/unpause dead until mp.status).
 """
 
 from simmp.deep import (
@@ -24,6 +28,37 @@ _IGNORED_PAUSE_REASONS = frozenset(
         "igoUp",
     )
 )
+
+# When True, joiner Overrides call through to the real GameClock APIs so
+# multiplayer can apply an authoritative room speed locally.
+_APPLYING_LOCAL = False
+
+
+def apply_clock_speed_local(speed):
+    """Set the local game clock, bypassing joiner deep Overrides.
+
+    Returns the applied speed int, or None on failure.
+    """
+    global _APPLYING_LOCAL
+    _APPLYING_LOCAL = True
+    try:
+        import services
+        from clock import ClockSpeedMode
+
+        game_clock = services.game_clock_service()
+        if game_clock is None:
+            return None
+        mode = ClockSpeedMode(int(speed))
+        setter = getattr(game_clock, "set_clock_speed", None)
+        if setter is None:
+            return None
+        setter(mode)
+        applied = getattr(game_clock, "clock_speed", None)
+        return int(getattr(applied, "value", int(speed)))
+    except Exception:
+        return None
+    finally:
+        _APPLYING_LOCAL = False
 
 
 def _speed_int(speed):
@@ -69,7 +104,7 @@ def install_clock_hooks():
 
     @Override(GameClock.set_clock_speed, role=Role.JOINER)
     def _set_clock_speed_joiner(original, self, speed, *args, **kwargs):
-        if not SESSION.enabled or SESSION.is_host:
+        if _APPLYING_LOCAL or not SESSION.enabled or SESSION.is_host:
             return original(self, speed, *args, **kwargs)
         source = kwargs.get("source", args[0] if len(args) > 0 else 0)
         reason = kwargs.get("reason", args[1] if len(args) > 1 else "")
@@ -79,11 +114,10 @@ def install_clock_hooks():
 
     @Override(GameClock.push_speed, role=Role.JOINER)
     def _push_speed_joiner(original, self, speed, *args, **kwargs):
-        if not SESSION.enabled or SESSION.is_host:
+        if _APPLYING_LOCAL or not SESSION.enabled or SESSION.is_host:
             return original(self, speed, *args, **kwargs)
         source = kwargs.get("source", args[0] if len(args) > 0 else 0)
         reason = kwargs.get("reason", args[2] if len(args) > 2 else (args[1] if len(args) > 1 else ""))
-        # push_speed(speed, source, validity_check, reason, immediate)
         if "reason" in kwargs:
             reason = kwargs["reason"]
         elif len(args) >= 3:
@@ -96,7 +130,7 @@ def install_clock_hooks():
 
     @Override(GameClock.pop_speed, role=Role.JOINER)
     def _pop_speed_joiner(original, self, speed=None, *args, **kwargs):
-        if not SESSION.enabled or SESSION.is_host:
+        if _APPLYING_LOCAL or not SESSION.enabled or SESSION.is_host:
             return original(self, speed, *args, **kwargs) if speed is not None else original(self, *args, **kwargs)
         source = kwargs.get("source", args[0] if len(args) > 0 else 0)
         reason = kwargs.get("reason", args[1] if len(args) > 1 else "")
@@ -139,7 +173,6 @@ def _host_set_clock_speed(wrapper):
         else:
             clock_service.set_clock_speed(speed, source=source, reason=reason, immediate=immediate)
     except TypeError:
-        # Older / alternate signatures without kwargs.
         try:
             if method == CLOCK_METHOD_PUSH:
                 clock_service.push_speed(speed)
