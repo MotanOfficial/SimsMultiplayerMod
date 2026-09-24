@@ -168,6 +168,8 @@ class LauncherGuiTests(unittest.TestCase):
         mods = tempfile.mkdtemp()
         self.addCleanup(lambda: shutil.rmtree(mods, ignore_errors=True))
         app._mods = mods
+        # mkdtemp lives under Temp; force the canonical writer to use our dir.
+        app._canonical_mods_folder = lambda: mods
         app._write_config("127.0.0.1", 8765, "Alice", role="host")
         path = os.path.join(mods, "Sims4Multiplayer.json")
         with open(path, encoding="utf-8") as handle:
@@ -184,6 +186,89 @@ class LauncherGuiTests(unittest.TestCase):
         self.assertTrue(join_cfg["deep_hooks"])
         self.assertFalse(join_cfg["want_host"])
         self.assertEqual(join_cfg["name"], "Bob")
+
+    def test_write_config_rejects_temp_mods_path(self):
+        import shutil
+
+        app = self._app()
+        # Must not live under tempfile.gettempdir() or the resolver rejects it.
+        real_mods = os.path.join(os.path.dirname(__file__), "_tmp_canonical_mods")
+        os.makedirs(real_mods, exist_ok=True)
+        self.addCleanup(lambda: shutil.rmtree(real_mods, ignore_errors=True))
+        app._mods = os.path.join(tempfile.gettempdir(), "tmpe07yk3zi_fake")
+        from launcher_common import RUNTIME
+
+        saved = RUNTIME.mods_folder
+        RUNTIME.mods_folder = lambda: real_mods
+        self.addCleanup(lambda: setattr(RUNTIME, "mods_folder", saved))
+        app._write_config("127.0.0.1", 8799, "Motan", role="host")
+        path = os.path.join(real_mods, "Sims4Multiplayer.json")
+        self.assertTrue(os.path.isfile(path), "config must land in real Mods, not Temp")
+        with open(path, encoding="utf-8") as handle:
+            cfg = json.load(handle)
+        self.assertTrue(cfg["auto_connect"])
+        self.assertTrue(cfg["deep_hooks"])
+        self.assertEqual(cfg["port"], 8799)
+
+    def _plant_mod_scripts(self, mods, with_preconnect=True):
+        for path in [
+            os.path.join(mods, "Sims4Multiplayer", "Scripts", "simmp_client", "sims4_plugin.py"),
+            os.path.join(mods, "Sims4Multiplayer", "Scripts", "simmp_client", "connectivity.py"),
+            os.path.join(mods, "Sims4Multiplayer", "Scripts", "simmp_client", "deep", "__init__.py"),
+            os.path.join(mods, "Sims4Multiplayer", "Scripts", "simmp_client", "deep", "interactions.py"),
+            os.path.join(mods, "Sims4Multiplayer", "Scripts", "simmp", "messages.py"),
+            os.path.join(mods, "Sims4Multiplayer", "Scripts", "simmp", "deep", "messages.py"),
+        ]:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            body = "# stub\n"
+            if path.endswith("sims4_plugin.py") and with_preconnect:
+                body = "def schedule_auto_connect():\n    pass\nbegin_preconnect_gate = True\n"
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(body)
+
+    def test_preflight_blocks_missing_mod_scripts(self):
+        import shutil
+
+        app = self._app()
+        mods = os.path.join(os.path.dirname(__file__), "_tmp_preflight_mods")
+        os.makedirs(mods, exist_ok=True)
+        self.addCleanup(lambda: shutil.rmtree(mods, ignore_errors=True))
+        app._canonical_mods_folder = lambda: mods
+        app._write_config("127.0.0.1", 8765, "Alice", role="join")
+        ok, errors = app._preflight_launch("join", "127.0.0.1", 8765, "Alice")
+        self.assertFalse(ok)
+        self.assertTrue(any("Mod scripts incomplete" in e for e in errors))
+
+    def test_preflight_ok_when_mod_and_config_ready(self):
+        import shutil
+
+        app = self._app()
+        mods = os.path.join(os.path.dirname(__file__), "_tmp_preflight_ok")
+        os.makedirs(mods, exist_ok=True)
+        self.addCleanup(lambda: shutil.rmtree(mods, ignore_errors=True))
+        app._canonical_mods_folder = lambda: mods
+        self._plant_mod_scripts(mods)
+        app._write_config("10.0.0.2", 8799, "Bob", role="join")
+        ok, errors = app._preflight_launch("join", "10.0.0.2", 8799, "Bob")
+        self.assertTrue(ok, errors)
+        self.assertEqual(errors, [])
+
+    def test_launch_game_blocked_without_preflight(self):
+        import shutil
+        from unittest import mock
+
+        app = self._app()
+        mods = os.path.join(os.path.dirname(__file__), "_tmp_preflight_block")
+        os.makedirs(mods, exist_ok=True)
+        self.addCleanup(lambda: shutil.rmtree(mods, ignore_errors=True))
+        app._canonical_mods_folder = lambda: mods
+        app._game = ""
+        with mock.patch("subprocess.Popen") as popen, mock.patch("os.startfile") as startfile:
+            launched = app._launch_game("join", "127.0.0.1", 8765)
+        self.assertFalse(launched)
+        popen.assert_not_called()
+        startfile.assert_not_called()
+        self.assertIn("Launch blocked", self.logged())
 
 
 if __name__ == "__main__":

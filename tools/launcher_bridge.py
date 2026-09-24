@@ -253,9 +253,22 @@ class LauncherBridge(SetupMixin, LobbyMixin, DiagnosticsMixin, QObject):
 
     # ------------------------------------------------------------- utilities
     def _auto_detect(self):
+        import tempfile
+
+        temp_root = os.path.normcase(os.path.abspath(tempfile.gettempdir()))
+
+        def _is_temp(path):
+            if not path:
+                return False
+            abs_path = os.path.normcase(os.path.abspath(path))
+            return abs_path == temp_root or abs_path.startswith(temp_root + os.sep)
+
         for key in ("game", "mods", "saves"):
-            if not getattr(self, "_%s" % key):
-                setattr(self, "_%s" % key, self._guess(key) or "")
+            current = getattr(self, "_%s" % key)
+            if not current or (key == "mods" and _is_temp(current)):
+                guessed = self._guess(key) or ""
+                if guessed:
+                    setattr(self, "_%s" % key, guessed)
         self.refreshSaves()
 
     def _note(self, text, kind="info"):

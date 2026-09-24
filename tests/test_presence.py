@@ -124,7 +124,7 @@ class AutoConnectScheduleTests(unittest.TestCase):
         sims4_plugin._auto_connect_config = None
 
     def test_successful_schedule_consumes_config(self):
-        with mock.patch.object(sims4_plugin, "_apply_config", return_value=object()), \
+        with mock.patch.object(sims4_plugin, "_apply_config", return_value=mock.Mock()), \
                 mock.patch.object(
                     game_hooks, "add_one_off_real_time_alarm", return_value="handle"
                 ):
@@ -132,12 +132,21 @@ class AutoConnectScheduleTests(unittest.TestCase):
         self.assertIsNone(sims4_plugin._auto_connect_config)
 
     def test_failed_schedule_keeps_config_for_retry(self):
-        with mock.patch.object(sims4_plugin, "_apply_config", return_value=object()), \
+        with mock.patch.object(sims4_plugin, "_apply_config", return_value=mock.Mock()), \
                 mock.patch.object(
                     game_hooks, "add_one_off_real_time_alarm", return_value=None
                 ):
             self.assertFalse(sims4_plugin.schedule_auto_connect())
         self.assertIsNotNone(sims4_plugin._auto_connect_config)
+
+    def test_schedule_arms_preconnect_gate(self):
+        client = mock.Mock()
+        with mock.patch.object(sims4_plugin, "_apply_config", return_value=client), \
+                mock.patch.object(
+                    game_hooks, "add_one_off_real_time_alarm", return_value="handle"
+                ):
+            self.assertTrue(sims4_plugin.schedule_auto_connect())
+        client.begin_preconnect_gate.assert_called()
 
 
 if __name__ == "__main__":

@@ -344,17 +344,192 @@ class LobbyMixin(object):
         self._set_can_join_start(True)
 
     # --------------------------------------------------------------- launch
+    def _canonical_mods_folder(self):
+        """Mods folder the game actually reads Sims4Multiplayer.json from.
+
+        Prefer the real EA Documents Mods path. Never trust a Temp/tmp path
+        (a bad browse or leftover settings.json used to write config where
+        the game never looks, so Continue-into-save never auto-connected).
+        """
+        import tempfile
+
+        guessed = ""
+        try:
+            guessed = (RUNTIME.mods_folder() or "").strip()
+        except Exception:
+            guessed = ""
+        configured = (self._mods or "").strip()
+        temp_root = os.path.normcase(os.path.abspath(tempfile.gettempdir()))
+
+        def _is_temp(path):
+            if not path:
+                return True
+            abs_path = os.path.normcase(os.path.abspath(path))
+            return abs_path == temp_root or abs_path.startswith(temp_root + os.sep)
+
+        if configured and not _is_temp(configured) and os.path.isdir(configured):
+            return configured
+        if guessed and not _is_temp(guessed) and os.path.isdir(guessed):
+            if configured and configured != guessed:
+                self._note(
+                    "Mods path %s is unusable (temp/missing); using %s for config."
+                    % (configured, guessed),
+                    kind="error",
+                )
+                self._mods = guessed
+                try:
+                    self.modsPathChanged.emit(guessed)
+                except Exception:
+                    pass
+            return guessed
+        if configured and not _is_temp(configured):
+            return configured
+        return None
+
+    def _mod_scripts_root(self, mods):
+        return os.path.join(mods, "Sims4Multiplayer", "Scripts")
+
+    def _required_mod_files(self, mods):
+        root = self._mod_scripts_root(mods)
+        return [
+            os.path.join(root, "simmp_client", "sims4_plugin.py"),
+            os.path.join(root, "simmp_client", "connectivity.py"),
+            os.path.join(root, "simmp_client", "deep", "__init__.py"),
+            os.path.join(root, "simmp_client", "deep", "interactions.py"),
+            os.path.join(root, "simmp", "messages.py"),
+            os.path.join(root, "simmp", "deep", "messages.py"),
+        ]
+
+    def _read_json_file(self, path):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, ValueError, TypeError):
+            return None
+
+    def _verify_config_payload(self, config, host, port, name, role):
+        """Return a list of human-readable problems with a written config."""
+        problems = []
+        if not isinstance(config, dict):
+            return ["config is missing or not valid JSON"]
+        expect_host = str(host).strip()
+        expect_port = int(port)
+        expect_name = (name or "").strip()
+        is_host = role == "host"
+        checks = (
+            ("host", expect_host, str(config.get("host", "")).strip()),
+            ("port", expect_port, config.get("port")),
+            ("name", expect_name, str(config.get("name", "")).strip()),
+            ("auto_connect", True, config.get("auto_connect")),
+            ("deep_hooks", True, config.get("deep_hooks")),
+            ("want_host", is_host, config.get("want_host")),
+            ("world_sync", False, config.get("world_sync")),
+            ("interaction_sync", False, config.get("interaction_sync")),
+            ("sync_funds", False, config.get("sync_funds")),
+            ("build_sync", False, config.get("build_sync")),
+            ("min_players", 2, config.get("min_players")),
+        )
+        for key, expected, actual in checks:
+            if actual != expected:
+                problems.append("%s=%r (expected %r)" % (key, actual, expected))
+        return problems
+
+    def _installed_mod_has_preconnect(self, mods):
+        """True when the installed scripts include the preconnect gate."""
+        path = os.path.join(
+            self._mod_scripts_root(mods), "simmp_client", "sims4_plugin.py"
+        )
+        try:
+            with open(path, encoding="utf-8") as handle:
+                text = handle.read()
+        except OSError:
+            return False
+        return "begin_preconnect_gate" in text and "schedule_auto_connect" in text
+
+    def _preflight_launch(self, role, host, port, name):
+        """Validate Mods path, installed scripts, and written config before launch.
+
+        Returns (ok, errors). On failure the game must not start — otherwise
+        players get into a save with stale/temp config and no auto-connect.
+        """
+        errors = []
+        mods = self._canonical_mods_folder()
+        if not mods:
+            errors.append(
+                "No usable Mods folder (Temp paths are rejected). "
+                "Set Mods to Documents\\Electronic Arts\\The Sims 4\\Mods."
+            )
+            return False, errors
+        if not os.path.isdir(mods):
+            errors.append("Mods folder does not exist: %s" % mods)
+            return False, errors
+
+        missing = [path for path in self._required_mod_files(mods) if not os.path.isfile(path)]
+        if missing:
+            errors.append(
+                "Mod scripts incomplete under %s (%d missing). Press Install mod."
+                % (self._mod_scripts_root(mods), len(missing))
+            )
+        elif not self._installed_mod_has_preconnect(mods):
+            errors.append(
+                "Installed mod is outdated (no preconnect/auto-connect gate). "
+                "Press Install mod, then try again."
+            )
+
+        targets = [
+            os.path.join(mods, "Sims4Multiplayer.json"),
+            os.path.join(mods, "Sims4Multiplayer", "Sims4Multiplayer.json"),
+        ]
+        for target in targets:
+            if not os.path.isfile(target):
+                errors.append("Config not written: %s" % target)
+                continue
+            problems = self._verify_config_payload(
+                self._read_json_file(target), host, port, name, role
+            )
+            if problems:
+                errors.append(
+                    "Config %s is wrong: %s" % (target, "; ".join(problems))
+                )
+
+        if role == "host":
+            if self.server is None or not self.server.thread_alive():
+                errors.append("Lobby server is not running.")
+            else:
+                try:
+                    actual = int(self.server.actual_port)
+                    if int(port) != actual:
+                        errors.append(
+                            "Config port %s does not match lobby port %s"
+                            % (port, actual)
+                        )
+                except (TypeError, ValueError):
+                    errors.append("Lobby port is invalid.")
+        else:
+            if not str(host).strip():
+                errors.append("Join IP is empty.")
+            try:
+                p = int(port)
+                if not (0 < p < 65536):
+                    errors.append("Join port out of range: %s" % port)
+            except (TypeError, ValueError):
+                errors.append("Join port is invalid: %s" % port)
+
+        return (not errors), errors
+
     def _write_config(self, host, port, name, role="join"):
         """Write Sims4Multiplayer.json for a deep-hooks session.
 
         Host claims simulation authority (`want_host`); joiners relay UI
         intent and do not claim. Legacy sampler sync (world / interaction /
         funds / build) is turned off so it does not fight deep hooks.
+
+        Returns the Mods folder written to, or None on failure.
         """
-        mods = self._mods.strip() or None
+        mods = self._canonical_mods_folder()
         if not mods:
             self._note("No Mods folder set - cannot write auto-connect config.", kind="error")
-            return
+            return None
         config_dir = os.path.join(mods, "Sims4Multiplayer")
         os.makedirs(config_dir, exist_ok=True)
         is_host = role == "host"
@@ -383,14 +558,30 @@ class LobbyMixin(object):
                     json.dump(config, handle, indent=2)
             except OSError as exc:
                 self._note("Could not write config %s: %s" % (target, exc), kind="error")
+                return None
         self._note(
-            "Auto-connect config written for %s:%s (name: %s, deep %s)"
-            % (host, port, name, "host" if is_host else "joiner")
+            "Auto-connect config written to %s for %s:%s (name: %s, deep %s)"
+            % (mods, host, port, name, "host" if is_host else "joiner")
         )
+        return mods
 
     def _launch_game(self, role, config_host, config_port):
         name = (self._host_name if role == "host" else self._join_name).strip() or role.title()
-        self._write_config(config_host, config_port, name, role=role)
+        if self._write_config(config_host, config_port, name, role=role) is None:
+            self._note("Launch blocked: could not write Sims4Multiplayer.json.", kind="error")
+            return False
+        ok, errors = self._preflight_launch(role, config_host, config_port, name)
+        if not ok:
+            self._note("Launch blocked — fix these before starting the game:", kind="error")
+            for err in errors:
+                self._note("  • %s" % err, kind="error")
+            self._note(
+                "Tip: Mods must be Documents\\...\\Mods (not Temp). "
+                "Use Install mod, then Start Game again.",
+                kind="error",
+            )
+            return False
+        self._note("Preflight OK — Mods, deep config, and scripts look ready.")
         game = self._game.strip()
         if game and os.path.isfile(game):
             try:
@@ -398,14 +589,16 @@ class LobbyMixin(object):
                 self._note("Launched %s" % game)
             except Exception as exc:  # noqa: BLE001
                 self._note("Failed to launch %s: %s" % (game, exc), kind="error")
-                return
+                return False
         else:
             try:
                 os.startfile("steam://rungameid/%s" % RUNTIME.steam_game_id())  # noqa: 601
                 self._note("Launched The Sims 4 via Steam (game files not found).")
             except Exception as exc:  # noqa: BLE001
                 self._note("Could not launch the game: %s" % exc, kind="error")
+                return False
         self._note("The game should auto-connect to %s:%s on startup." % (config_host, config_port))
+        return True
 
     @Slot()
     def startGameHost(self):
@@ -415,8 +608,8 @@ class LobbyMixin(object):
         # Keep the lobby TCP seat connected so the GUI stays in the room;
         # it is tagged lobby=true and does not block the in-game clock gate.
         self._note("Starting the game on the host side...")
-        self._launch_game("host", "127.0.0.1", self.server.actual_port)
-        self._set_can_host_start(False)
+        if self._launch_game("host", "127.0.0.1", self.server.actual_port):
+            self._set_can_host_start(False)
 
     @Slot()
     def startGameJoin(self):
@@ -425,8 +618,8 @@ class LobbyMixin(object):
         # Keep the join lobby seat connected (lobby=true) while the game
         # auto-connects with its own in-game client.
         self._note("Starting the game on the join side...")
-        self._launch_game("join", host or "127.0.0.1", port or DEFAULT_PORT)
-        self._set_can_join_start(False)
+        if self._launch_game("join", host or "127.0.0.1", port or DEFAULT_PORT):
+            self._set_can_join_start(False)
 
     # ---------------------------------------------------------- status helpers
     def _disconnect_held(self, *names):

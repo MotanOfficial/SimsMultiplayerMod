@@ -74,6 +74,10 @@ class MultiplayerClient:
         self._players_wait_logged = False
         self._force_pause_logged = False
         self._coop_hold = False
+        # Keep the game-thread alarm running before TCP connect so force-pause
+        # and auto-connect retries work as soon as the save loads — without
+        # waiting for a manual mp.* cheat command.
+        self._preconnect_gate = False
         self._reconnect_attempt = 0
         self._next_reconnect_at = 0.0
         self._alarm_started_at = 0.0
@@ -207,11 +211,23 @@ class MultiplayerClient:
         self.engine = engine
         self._bind_deep_session()
         self._log("NET", "Connected to %s:%s" % (host, port))
+        self._preconnect_gate = False
         self._start_alarm()
         self._reconnect_attempt = 0
         self._next_reconnect_at = 0.0
         self.process_incoming()
         return True
+
+    def begin_preconnect_gate(self):
+        """Arm force-pause + auto-connect retries before TCP is up.
+
+        Called when ``auto_connect`` config is loaded at mod install. The sync
+        alarm normally starts only on ``connect()``; without this, Continue
+        into a save leaves the clock running until the player types a cheat.
+        """
+        self._preconnect_gate = True
+        self._start_alarm()
+        return self._alarm_handle is not None
 
     def disconnect(self):
         self._stop_alarm()
@@ -1106,9 +1122,11 @@ class MultiplayerClient:
         drop a pending schedule; every manual command runs this (via
         `process_incoming`) so the sync loop self-heals without a restart.
         The loop survives connection drops (it drives the auto-reconnect);
-        only an explicit `disconnect()` (engine gone) stops it.
+        only an explicit `disconnect()` (engine gone) stops it — unless a
+        preconnect gate is still waiting to auto-connect / force-pause.
         """
-        if self.engine is None or self.engine.stopped:
+        engine_alive = self.engine is not None and not self.engine.stopped
+        if not engine_alive and not self._preconnect_gate:
             return
         now = time.time()
         if self._alarm_handle is not None:
@@ -1159,6 +1177,18 @@ class MultiplayerClient:
     def _on_alarm(self, *args):
         try:
             self._last_alarm_tick = time.time()
+            # Retry auto-connect while the preconnect gate is armed and the
+            # alarm service is finally available (import-time schedule often
+            # fails before the zone is up).
+            if self._preconnect_gate:
+                engine = self.engine
+                if engine is None or not engine.connected:
+                    try:
+                        from simmp_client import sims4_plugin
+
+                        sims4_plugin.schedule_auto_connect()
+                    except Exception:
+                        pass
             engine = self.engine
             if engine is not None and engine.connected:
                 self._reconnect_attempt = 0

@@ -73,7 +73,7 @@ def schedule_auto_connect():
 
     Returns True when the alarm was actually scheduled. The alarm service may
     not be ready during mod import, so the config is only consumed on success;
-    a later `mp.*` command retries via `cheat_commands._maybe_init()`.
+    the preconnect gate alarm and the first `mp.*` command both retry.
     """
     global _auto_connect_config
     if _auto_connect_config is None:
@@ -83,6 +83,11 @@ def schedule_auto_connect():
 
     config = _auto_connect_config
     client = _apply_config(config)
+    # Keep force-pause armed even if the connect one-shot fails to schedule.
+    try:
+        client.begin_preconnect_gate()
+    except Exception:
+        pass
     host = config["host"]
     port = config["port"]
     handle = game_hooks.add_one_off_real_time_alarm(
@@ -94,6 +99,54 @@ def schedule_auto_connect():
         return False
     _auto_connect_config = None
     return True
+
+
+def _install_zone_ready_retry():
+    """Retry auto-connect / preconnect gate when a lot finishes loading.
+
+    Import-time alarms often fail (service not up yet). Without a zone-ready
+    hook the only retry was the first ``mp.*`` cheat — Continue into a save
+    never paused and never connected on its own.
+    """
+    candidates = (
+        ("zone", "Zone", "on_loading_screen_animation_finished"),
+        ("zone", "Zone", "on_hit_their_marks"),
+        ("sims.gameplay", "Gameplay", "on_loading_screen_animation_finished"),
+    )
+    for module_name, class_name, method_name in candidates:
+        try:
+            module = __import__(module_name, fromlist=[class_name])
+            cls = getattr(module, class_name, None)
+            if cls is None:
+                continue
+            original = getattr(cls, method_name, None)
+            if original is None or getattr(original, "_simmp_preconnect", False):
+                continue
+
+            def _make(orig):
+                def wrapped(self, *args, **kwargs):
+                    try:
+                        schedule_auto_connect()
+                    except Exception:
+                        pass
+                    try:
+                        from simmp_client.commands import cheat_commands
+
+                        client = cheat_commands.get_client()
+                        if getattr(client, "_preconnect_gate", False):
+                            client.begin_preconnect_gate()
+                    except Exception:
+                        pass
+                    return orig(self, *args, **kwargs)
+
+                wrapped._simmp_preconnect = True
+                return wrapped
+
+            setattr(cls, method_name, _make(original))
+            return True
+        except Exception:
+            continue
+    return False
 
 
 def install():
@@ -124,9 +177,18 @@ def install():
         return True
 
     _auto_connect_config = config
-    # Try to arm the connect alarm right away so the player never has to type
-    # a command. If the alarm service is not up yet at import time this is a
-    # no-op and the first mp.* command retries through _maybe_init().
+    # Apply settings + arm preconnect force-pause immediately so Continue into
+    # a save stays paused even when the alarm service is not ready yet at
+    # import (schedule_auto_connect retries from the gate tick / zone load / mp.*).
+    try:
+        client = _apply_config(config)
+        client.begin_preconnect_gate()
+    except Exception:
+        pass
+    try:
+        _install_zone_ready_retry()
+    except Exception:
+        pass
     try:
         schedule_auto_connect()
     except Exception:
