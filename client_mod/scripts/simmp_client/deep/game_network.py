@@ -1,8 +1,10 @@
 """Relay native Sims distributor / UI messages via omega.send (joiner side).
 
 Host side fans Client.send_message traffic to joiners as GameNetworkMessage,
-except local-only UI (pie menus, active-sim focus, dialogs, …) which must stay
-on the machine that opened them.
+except a small set of local-only UI message ids (pie menus, dialogs, …).
+
+ViewUpdates are fanned intact — stripping individual ops (M40) corrupted the
+protobuf payload and left joiners looking permanently paused / missing objects.
 """
 
 from simmp.deep import KIND_GAME_NETWORK
@@ -16,11 +18,29 @@ def _omega_send(client_id, msg_id, payload):
     omega.send(client_id, msg_id, payload)
 
 
+def _collect_named_consts(module, names):
+    values = set()
+    for name in names:
+        value = getattr(module, name, None)
+        if value is not None:
+            values.add(int(value))
+    return values
+
+
+# Op types joiners should ignore when injecting a host ViewUpdate. Filtered on
+# the RECEIVE side so we never mutate the host's outbound protobuf.
+_JOINER_IGNORE_OP_NAMES = (
+    "SET_SIM_ACTIVE",
+    "FOCUS",
+)
+
+
 @MessageHandler(KIND_GAME_NETWORK)
 def _on_game_network(wrapper):
     """Joiner: inject host-authored native protocol bytes into the local client."""
     try:
         import services
+        from protocolbuffers import Consts_pb2
     except Exception:
         return
     body = wrapper.body or {}
@@ -32,53 +52,55 @@ def _on_game_network(wrapper):
     if client is None:
         return
     try:
-        _omega_send(client.id, int(msg_id), bytes(raw))
+        payload = bytes(raw)
+        view_id = getattr(Consts_pb2, "MSG_OBJECTS_VIEW_UPDATE", None)
+        if view_id is not None and int(msg_id) == int(view_id):
+            filtered = _filter_view_update_ops(payload)
+            if filtered is None:
+                return
+            payload = filtered
+        _omega_send(client.id, int(msg_id), payload)
     except Exception:
         return
 
 
-def _collect_named_consts(module, names):
-    values = set()
-    for name in names:
-        value = getattr(module, name, None)
-        if value is not None:
-            values.add(int(value))
-    return values
+def _filter_view_update_ops(raw):
+    """Drop per-client UI ops from a ViewUpdate without corrupting other ops.
 
-
-def _strip_local_only_view_ops(msg_pb, local_op_types):
-    """Drop per-client UI ops (active sim, focus, …) from a ViewUpdate copy.
-
-    Returns the filtered protobuf, or None when nothing remains to fan out.
+    Returns serialized bytes, or None when nothing remains.
     """
-    if not local_op_types:
-        return msg_pb
     try:
-        entries = getattr(msg_pb, "entries", None)
-        if not entries:
-            return msg_pb
-        # Mutate a clone so the host's local UI still receives every op.
-        clone = msg_pb.__class__()
-        clone.CopyFrom(msg_pb)
-        for entry in list(clone.entries):
-            ops = getattr(getattr(entry, "operation_list", None), "operations", None)
-            if not ops:
-                continue
-            keep = []
-            for op in list(ops):
-                op_type = int(getattr(op, "type", -1))
-                if op_type in local_op_types:
-                    continue
-                keep.append(op)
-            del ops[:]
-            ops.extend(keep)
-            if not ops:
-                clone.entries.remove(entry)
-        if not clone.entries:
-            return None
-        return clone
+        from protocolbuffers import Distributor_pb2
+        from protocolbuffers.DistributorOps_pb2 import Operation
     except Exception:
-        return msg_pb
+        return raw
+    ignore = _collect_named_consts(Operation, _JOINER_IGNORE_OP_NAMES)
+    if not ignore:
+        return raw
+    try:
+        msg = Distributor_pb2.ViewUpdate()
+        msg.ParseFromString(raw)
+    except Exception:
+        return raw
+    try:
+        for entry in list(msg.entries):
+            ops = entry.operation_list.operations
+            kept = []
+            for op in list(ops):
+                if int(getattr(op, "type", -1)) in ignore:
+                    continue
+                kept.append(op.SerializeToString())
+            del ops[:]
+            for blob in kept:
+                new_op = ops.add()
+                new_op.ParseFromString(blob)
+            if not ops:
+                msg.entries.remove(entry)
+        if not msg.entries:
+            return None
+        return msg.SerializeToString()
+    except Exception:
+        return raw
 
 
 def install_client_send_message_hooks():
@@ -108,32 +130,6 @@ def install_client_send_message_hooks():
         ),
     )
 
-    local_op_types = set()
-    try:
-        from protocolbuffers.DistributorOps_pb2 import Operation
-
-        local_op_types = _collect_named_consts(
-            Operation,
-            (
-                "FOCUS",
-                "HOVERTIP_CREATED",
-                "SET_SIM_ACTIVE",
-                # Native SetGameTime fan-out left joiners frozen on pause (M40).
-                "SET_GAME_TIME",
-                "CLIENT_CREATE",
-                "CLIENT_DELETE",
-                "LIVE_DRAG_START",
-                "LIVE_DRAG_END",
-                "LIVE_DRAG_CANCEL",
-                "OPEN_INVENTORY",
-                "SEND_UI_MESSAGE",
-            ),
-        )
-    except Exception:
-        local_op_types = set()
-
-    view_update_id = getattr(Consts_pb2, "MSG_OBJECTS_VIEW_UPDATE", None)
-
     @Override(Client.send_message, role=Role.HOST)
     def _send_message_host(original, self, msg_id, msg_pb):
         if not getattr(self, "active", True):
@@ -144,16 +140,11 @@ def install_client_send_message_hooks():
         msg_id_i = int(msg_id)
         if msg_id_i in LOCAL_ONLY_MSG_IDS:
             return result
-        payload = msg_pb
-        if view_update_id is not None and msg_id_i == int(view_update_id):
-            payload = _strip_local_only_view_ops(msg_pb, local_op_types)
-            if payload is None:
-                return result
         try:
             raw = (
-                payload.SerializeToString()
-                if hasattr(payload, "SerializeToString")
-                else bytes(payload)
+                msg_pb.SerializeToString()
+                if hasattr(msg_pb, "SerializeToString")
+                else bytes(msg_pb)
             )
         except Exception:
             return result
