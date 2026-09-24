@@ -1,5 +1,5 @@
 {
- "version": "2026-09-24-1079db7",
+ "version": "2026-09-24-0540a17",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -23,7 +23,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/connectivity.py",
-   "sha256": "dba49a6ea67b5dca0729c19840fdf2de557e8831d240184f621f58aa64ba8841"
+   "sha256": "3259241f99de0ba46c41f31ff295bbaad476f165835419360f3a38dbdac78cb9"
   },
   {
    "path": "client_mod/scripts/simmp_client/deep/__init__.py",
@@ -279,7 +279,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/sims4_plugin.py",
-   "sha256": "1a2d43ad11733e4ca85a740cb19d07a1ee451320d694de04a71faab2802ca988"
+   "sha256": "b708993c4f81b3d0e6dcb4bc8b3e826c1149eccd7bd4e9f2149c16b1fcacf739"
   },
   {
    "path": "client_mod/scripts/simmp_client/state/__init__.py",
