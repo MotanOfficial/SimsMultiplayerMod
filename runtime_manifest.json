@@ -1,5 +1,5 @@
 {
- "version": "2026-09-24-92a14f8",
+ "version": "2026-09-24-d58bd33",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -107,7 +107,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/deep/game_network.py",
-   "sha256": "438b5558bfa43977f755601532bf8d3c93119e369542ba4a93f760ae449866ad"
+   "sha256": "97d7e46dd925750094a0f40ec0426a4fff3812ce62135b74986608418b29870d"
   },
   {
    "path": "client_mod/scripts/simmp_client/deep/genealogy.py",
