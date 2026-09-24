@@ -34,6 +34,26 @@ def _active_sim_id():
         return 0
 
 
+def _resolve_sim_id_for_player(body):
+    """Prefer the body's sim_id; fall back to host-tracked active sim for player."""
+    sim_id = body.get("sim_id")
+    try:
+        sim_id = int(sim_id or 0)
+    except Exception:
+        sim_id = 0
+    if sim_id:
+        return sim_id
+    player_id = int(body.get("player_id") or 0)
+    if not player_id:
+        return 0
+    try:
+        from simmp_client.deep import sim_select
+
+        return int(sim_select.get_active_sim_id_for_player(player_id) or 0)
+    except Exception:
+        return 0
+
+
 def _as_bool_flag(value):
     if isinstance(value, bool):
         return value
@@ -347,13 +367,19 @@ def _host_generate_choices(wrapper):
     client = services.get_first_client()
     if zone is None or client is None:
         return
-    sim_info, sim = _resolve_sim(body.get("sim_id"))
+    sim_info, sim = _resolve_sim(_resolve_sim_id_for_player(body))
     if sim is None:
         return
     target = zone.find_object(body.get("target_id"))
     choice_menu = ChoiceMenu(sim)
     shift = bool(body.get("shift"))
     pie_action = should_generate_pie_menu(client, sim, shift)
+    # Host client's active sim is the host's selection, not the joiner's.
+    # should_generate_pie_menu often refuses other household sims — force show
+    # for remote players so the laptop can open pie menus on its controlled sim.
+    if player_id and player_id != int(SESSION.player_id or 0):
+        if pie_action != PieMenuActions.SHOW_DEBUG_PIE_MENU:
+            pie_action = PieMenuActions.SHOW_PIE_MENU
     show = pie_action == PieMenuActions.SHOW_PIE_MENU
     show_debug = pie_action == PieMenuActions.SHOW_DEBUG_PIE_MENU
     if show or show_debug:
@@ -443,6 +469,7 @@ def _host_push_interaction(wrapper):
     affordance_id = body.get("affordance")
     opt_sim = body.get("opt_sim", -1)
     opt_target = body.get("opt_target", -1)
+    player_id = int(body.get("player_id") or 0)
     try:
         affordance = services.get_instance_manager(Types.INTERACTION).get(affordance_id)
     except Exception:
@@ -452,6 +479,13 @@ def _host_push_interaction(wrapper):
     sim = None
     if opt_sim not in (-1, None):
         _, sim = _resolve_sim(opt_sim)
+    if sim is None and player_id:
+        try:
+            from simmp_client.deep import sim_select
+
+            sim = sim_select.get_active_sim_for_player(player_id)
+        except Exception:
+            sim = None
     if sim is None:
         client = services.get_first_client()
         sim = client.active_sim if client is not None else None
@@ -485,6 +519,10 @@ def _host_has_choices(wrapper):
     zone = services.current_zone()
     if client is None or zone is None:
         return
+    # Ensure has_choices uses the joiner's active sim when the body omitted it.
+    if not body.get("sim_id"):
+        body = dict(body)
+        body["sim_id"] = _resolve_sim_id_for_player(body)
     try:
         immediate, interactable = _perform_has_choices(body, client, zone)
         raw = interactable.SerializeToString()
@@ -592,7 +630,7 @@ def _host_generate_phone_choices(wrapper):
     client = services.get_first_client()
     if client is None:
         return
-    sim_info, sim = _resolve_sim(body.get("sim_id"))
+    sim_info, sim = _resolve_sim(_resolve_sim_id_for_player(body))
     if sim is None:
         return
     choice_menu = ChoiceMenu(sim)

@@ -599,6 +599,18 @@ class MultiplayerClient:
                 self.time_speed = local
                 self._log("TIME", "TIME_SPEED %s (local change)" % local)
 
+    def _maybe_sync_active_sim(self):
+        """Joiner: keep host's active_sims map current (deep control)."""
+        deep = self._deep
+        if deep is None or not deep.enabled or deep.is_host:
+            return
+        try:
+            from simmp_client.deep import sim_select
+
+            sim_select.sync_active_sim_to_host()
+        except Exception:
+            return
+
     def _current_zone_id(self):
         try:
             return game_hooks.current_zone_id()
@@ -1273,6 +1285,7 @@ class MultiplayerClient:
                 self.session.connected = False
             self.process_incoming()
             self._maybe_sync_clock()
+            self._maybe_sync_active_sim()
             self.session.purge_stale_presence()
             self._maybe_send_presence()
             self._maybe_send_world_update()
