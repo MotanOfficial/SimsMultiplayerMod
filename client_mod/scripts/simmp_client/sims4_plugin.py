@@ -178,6 +178,15 @@ def install():
 
     cheat_commands.install_presence_sampler()
 
+    try:
+        from simmp_client import tick_pump
+        from simmp_client.logfile import FileLog
+
+        if tick_pump.install():
+            FileLog().write("[MP][NET] tick_pump installed")
+    except Exception:
+        pass
+
     global _auto_connect_config
     cfg_path = find_config_file()
     config = None

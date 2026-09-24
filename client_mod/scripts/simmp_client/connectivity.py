@@ -736,6 +736,25 @@ class MultiplayerClient:
             deep.host_player_id,
         )
 
+    def game_thread_pump(self):
+        """Run one sync tick from a game update hook (not only alarms).
+
+        Joiner alarms have been observed to go silent for 20–60s until a cheat
+        command revived them; the tick pump keeps TCP drain / TIME_SYNC /
+        interaction mirror alive regardless.
+        """
+        if getattr(self, "_in_game_pump", False):
+            return
+        self._in_game_pump = True
+        try:
+            # Only (re)arm when missing — do not run the stale-restart path
+            # from the pump or we cancel a freshly armed handle every 0.4s.
+            if self._alarm_handle is None:
+                self.ensure_alarm()
+            self._on_alarm()
+        finally:
+            self._in_game_pump = False
+
     def process_incoming(self):
         if self.engine is None:
             return
@@ -1099,23 +1118,38 @@ class MultiplayerClient:
         else:
             self._log("NET", "Unhandled message %s" % message_type)
 
+    def _sync_owner(self):
+        """Prefer the live Zone as alarm owner (MTS best practice)."""
+        try:
+            import services
+
+            zone = services.current_zone()
+            if zone is not None:
+                return zone
+        except Exception:
+            pass
+        return self._sync_alarm_owner
+
     def _start_alarm(self):
-        # Prefer a repeating wall-clock alarm (use_sleep_time=False via
-        # game_hooks) so ticks continue while the game is paused. Fall back
-        # to a chained one-shot if repeating is unavailable on this build.
+        # Prefer chained one-shot (proven on this patch). Repeating can return
+        # a handle that later goes silent on joiners while paused — M38 logs
+        # showed ~27s then stale until mp.status. use_sleep_time=False still
+        # applies so chained ticks continue while paused.
         if self._alarm_handle is not None:
             return
         self._alarm_started_at = time.time()
         self._alarm_repeating = False
-        owner = self._sync_alarm_owner
-        handle = game_hooks.add_repeating_real_time_alarm(owner, 0.5, self._on_alarm_repeating)
-        if handle is not None:
-            self._alarm_handle = handle
-            self._alarm_repeating = True
-        else:
-            self._alarm_handle = game_hooks.add_one_off_real_time_alarm(
-                owner, 0.5, self._on_alarm_chained
+        owner = self._sync_owner()
+        self._alarm_handle = game_hooks.add_one_off_real_time_alarm(
+            owner, 0.5, self._on_alarm_chained
+        )
+        if self._alarm_handle is None:
+            handle = game_hooks.add_repeating_real_time_alarm(
+                owner, 0.5, self._on_alarm_repeating
             )
+            if handle is not None:
+                self._alarm_handle = handle
+                self._alarm_repeating = True
         if self._alarm_handle is None:
             now = time.time()
             if now - self._last_alarm_fail_log >= 10.0:
@@ -1156,11 +1190,17 @@ class MultiplayerClient:
         if not engine_alive and not self._preconnect_gate:
             return
         now = time.time()
+        # Revive faster than the old 5s window — joiners were silent for
+        # 20–60s because nothing called ensure_alarm until mp.status.
+        stale_after = 2.5 if self._alarm_repeating else 3.0
         if self._alarm_handle is not None:
-            if self._last_alarm_tick:
-                if now - self._last_alarm_tick < 5.0:
-                    return
-            elif now - self._alarm_started_at < 2.0:
+            # Grace after (re)arm: _last_alarm_tick is still the OLD stamp, so
+            # checking it first caused immediate cancel loops (M38 join log
+            # flooded "stale; restarting" every second after the first revive).
+            if now - self._alarm_started_at < stale_after:
+                return
+            last = self._last_alarm_tick or self._alarm_started_at
+            if now - last < stale_after:
                 return
             self._stop_alarm()
             self._log("NET", "sync alarm stale; restarting")
@@ -1202,6 +1242,9 @@ class MultiplayerClient:
             session.travel_state = "traveled"
 
     def _on_alarm(self, *args):
+        if getattr(self, "_alarm_busy", False):
+            return True
+        self._alarm_busy = True
         try:
             self._last_alarm_tick = time.time()
             # Arm a *separate* short one-shot for TCP connect. Never dial from
@@ -1252,6 +1295,8 @@ class MultiplayerClient:
                     self._log("ERROR", "sync tick failed: %s" % key)
                 except Exception:
                     pass
+        finally:
+            self._alarm_busy = False
         return True
 
     def _on_deferred_connect(self, *args):

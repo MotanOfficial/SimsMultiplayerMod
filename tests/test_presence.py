@@ -62,6 +62,37 @@ class GameHooksOfflineTests(unittest.TestCase):
         self.assertIsNone(game_hooks.sample_current_zone())
         self.assertIsNone(game_hooks.cancel_alarm(None))
 
+    def test_ensure_alarm_grace_after_restart(self):
+        # After a stale restart, _last_alarm_tick is still old. ensure_alarm
+        # must not immediately cancel the freshly armed handle.
+        lines = []
+        client = MultiplayerClient(notify=lines.append)
+        client._preconnect_gate = True
+        handle = object()
+
+        def _arm(*_a, **_k):
+            return handle
+
+        with mock.patch.object(game_hooks, "add_one_off_real_time_alarm", side_effect=_arm), mock.patch.object(
+            game_hooks, "add_repeating_real_time_alarm", return_value=None
+        ), mock.patch.object(game_hooks, "cancel_alarm") as cancel:
+            client._start_alarm()
+            self.assertIs(client._alarm_handle, handle)
+            client._last_alarm_tick = 1.0  # ancient
+            client._alarm_started_at = 1000.0
+            with mock.patch("simmp_client.connectivity.time") as fake_time:
+                fake_time.time.return_value = 1001.0  # within grace
+                client.ensure_alarm()
+            cancel.assert_not_called()
+            self.assertIs(client._alarm_handle, handle)
+            with mock.patch("simmp_client.connectivity.time") as fake_time:
+                fake_time.time.return_value = 1005.0  # past grace, still no tick
+                client.ensure_alarm()
+            cancel.assert_called()
+            self.assertEqual(
+                len([ln for ln in lines if "stale; restarting" in ln]), 1
+            )
+
 
 class LocalSessionPresenceTtlTests(unittest.TestCase):
     def test_stale_presence_entries_are_purged(self):

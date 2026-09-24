@@ -216,6 +216,7 @@ class LauncherGuiTests(unittest.TestCase):
         for path in [
             os.path.join(mods, "Sims4Multiplayer", "Scripts", "simmp_client", "sims4_plugin.py"),
             os.path.join(mods, "Sims4Multiplayer", "Scripts", "simmp_client", "connectivity.py"),
+            os.path.join(mods, "Sims4Multiplayer", "Scripts", "simmp_client", "tick_pump.py"),
             os.path.join(mods, "Sims4Multiplayer", "Scripts", "simmp_client", "deep", "__init__.py"),
             os.path.join(mods, "Sims4Multiplayer", "Scripts", "simmp_client", "deep", "interactions.py"),
             os.path.join(mods, "Sims4Multiplayer", "Scripts", "simmp", "messages.py"),
@@ -224,7 +225,15 @@ class LauncherGuiTests(unittest.TestCase):
             os.makedirs(os.path.dirname(path), exist_ok=True)
             body = "# stub\n"
             if path.endswith("sims4_plugin.py") and with_preconnect:
-                body = "def schedule_auto_connect():\n    pass\nbegin_preconnect_gate = True\n"
+                body = (
+                    "def schedule_auto_connect():\n    pass\n"
+                    "begin_preconnect_gate = True\n"
+                    "tick_pump = True\n"
+                )
+            elif path.endswith("connectivity.py"):
+                body = "def game_thread_pump(self):\n    pass\n"
+            elif path.endswith("tick_pump.py"):
+                body = "def install():\n    return True\n"
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write(body)
 

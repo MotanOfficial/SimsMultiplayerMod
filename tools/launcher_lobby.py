@@ -402,6 +402,7 @@ class LobbyMixin(object):
     def _required_mod_files(self, mods):
         root = self._mod_scripts_root(mods)
         return [
+            os.path.join(root, "simmp_client", "tick_pump.py"),
             os.path.join(root, "simmp_client", "sims4_plugin.py"),
             os.path.join(root, "simmp_client", "connectivity.py"),
             os.path.join(root, "simmp_client", "deep", "__init__.py"),
@@ -445,16 +446,21 @@ class LobbyMixin(object):
         return problems
 
     def _installed_mod_has_preconnect(self, mods):
-        """True when the installed scripts include the preconnect gate."""
-        path = os.path.join(
-            self._mod_scripts_root(mods), "simmp_client", "sims4_plugin.py"
-        )
+        """True when the installed scripts include the tick pump / preconnect gate."""
+        root = self._mod_scripts_root(mods)
+        plugin = os.path.join(root, "simmp_client", "sims4_plugin.py")
+        connectivity = os.path.join(root, "simmp_client", "connectivity.py")
+        tick = os.path.join(root, "simmp_client", "tick_pump.py")
         try:
-            with open(path, encoding="utf-8") as handle:
-                text = handle.read()
+            with open(plugin, encoding="utf-8") as handle:
+                plugin_text = handle.read()
+            with open(connectivity, encoding="utf-8") as handle:
+                conn_text = handle.read()
         except OSError:
             return False
-        return "try_pending_connect" in text and "begin_preconnect_gate" in text
+        if not os.path.isfile(tick):
+            return False
+        return "tick_pump" in plugin_text and "game_thread_pump" in conn_text
 
     def _preflight_launch(self, role, host, port, name):
         """Validate Mods path, installed scripts, and written config before launch.
