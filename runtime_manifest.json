@@ -1,5 +1,5 @@
 {
- "version": "2026-09-24-bd73bf2",
+ "version": "2026-09-24-92a14f8",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -23,7 +23,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/connectivity.py",
-   "sha256": "fce37979fe39cc500e185a02db28e38e1ba085375986239e41fcc893bfa3c88c"
+   "sha256": "764bffedb2489917aae9dbf6487ffeb1bcb939ecf05118438ee1631ceb1cc683"
   },
   {
    "path": "client_mod/scripts/simmp_client/deep/__init__.py",
@@ -75,7 +75,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/deep/clock.py",
-   "sha256": "313ea62284e6006ddf4179b8e21986ebd847b7c894a1fb2b60d425c253e060c5"
+   "sha256": "76ea609f7582148b3b7b99083a4e173f2d82059d7ea578a25f50a2d213951775"
   },
   {
    "path": "client_mod/scripts/simmp_client/deep/clubs.py",
@@ -107,7 +107,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/deep/game_network.py",
-   "sha256": "712ca0df96084a78830ab58b3ead4bc8f20765fdd30ea5f5afddeac8eff343a8"
+   "sha256": "438b5558bfa43977f755601532bf8d3c93119e369542ba4a93f760ae449866ad"
   },
   {
    "path": "client_mod/scripts/simmp_client/deep/genealogy.py",
