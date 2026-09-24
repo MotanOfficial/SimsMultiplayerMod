@@ -63,6 +63,14 @@ class MultiplayerClient:
         self.session = LocalSession()
         self.session.presence_ttl = self.presence_ttl
         self._alarm_handle = None
+        self._alarm_repeating = False
+        # Dedicated owners so deferred-connect one-shots cannot invalidate the
+        # sync tick handle (AlarmHandle weakrefs the owner).
+        class _AlarmOwner(object):
+            pass
+
+        self._sync_alarm_owner = _AlarmOwner()
+        self._connect_alarm_owner = _AlarmOwner()
         self.auto_accept_travel = True
         self.travel_controller = None
         self.auto_reconnect = True
@@ -1092,39 +1100,48 @@ class MultiplayerClient:
             self._log("NET", "Unhandled message %s" % message_type)
 
     def _start_alarm(self):
-        # NOTE: the game-thread tick is a *chained one-off* alarm, not a
-        # repeating one. This game build has NO `add_one_off_real_time`;
-        # a one-shot is `add_alarm_real_time(..., repeating=False)`. Each
-        # tick re-arms the next in `_on_alarm_chained`.
+        # Prefer a repeating wall-clock alarm (use_sleep_time=False via
+        # game_hooks) so ticks continue while the game is paused. Fall back
+        # to a chained one-shot if repeating is unavailable on this build.
         if self._alarm_handle is not None:
             return
         self._alarm_started_at = time.time()
-        self._alarm_handle = game_hooks.add_one_off_real_time_alarm(self, 0.5, self._on_alarm_chained)
+        self._alarm_repeating = False
+        owner = self._sync_alarm_owner
+        handle = game_hooks.add_repeating_real_time_alarm(owner, 0.5, self._on_alarm_repeating)
+        if handle is not None:
+            self._alarm_handle = handle
+            self._alarm_repeating = True
+        else:
+            self._alarm_handle = game_hooks.add_one_off_real_time_alarm(
+                owner, 0.5, self._on_alarm_chained
+            )
         if self._alarm_handle is None:
             now = time.time()
             if now - self._last_alarm_fail_log >= 10.0:
                 self._last_alarm_fail_log = now
                 self._log("ERROR", "sync alarm unavailable; will retry on next tick/command")
         elif not self._alarm_start_logged:
-            # Chained one-off alarms re-arm every 0.5s; log once so field
-            # logs stay readable (was: thousands of "sync alarm started").
             self._alarm_start_logged = True
-            self._log("NET", "sync alarm started")
+            mode = "repeating" if self._alarm_repeating else "chained"
+            self._log("NET", "sync alarm started (%s)" % mode)
+
+    def _on_alarm_repeating(self, *args):
+        try:
+            self._on_alarm(*args)
+        except Exception as exc:
+            key = "%s: %s" % (type(exc).__name__, exc)
+            if key != self._last_tick_error:
+                self._last_tick_error = key
+                try:
+                    self._log("ERROR", "sync tick failed: %s" % key)
+                except Exception:
+                    pass
+        return True
 
     def _on_alarm_chained(self, *args):
-        # Fired by the one-off alarm scheduled in `_start_alarm`.
-        #
-        # CRITICAL: re-arm the NEXT tick BEFORE running work. Connecting
-        # (and other mid-tick scheduling) from inside a callback used to
-        # invalidate the owner’s pending alarm on this game build — the
-        # joiner then sat paused with a dead tick until mp.status called
-        # ensure_alarm(). Arming first keeps the chain alive across TCP
-        # connect / deep role activation.
+        # One-shot fallback: run one tick, then re-arm the next.
         self._alarm_handle = None
-        try:
-            self.ensure_alarm()
-        except Exception:
-            pass
         try:
             self._on_alarm(*args)
         finally:
@@ -1134,15 +1151,7 @@ class MultiplayerClient:
                 pass
 
     def ensure_alarm(self):
-        """(Re)start the 0.5s game-thread tick if it is missing or stale.
-
-        Alarm creation can fail when connecting mid-load, and the game may
-        drop a pending schedule; every manual command runs this (via
-        `process_incoming`) so the sync loop self-heals without a restart.
-        The loop survives connection drops (it drives the auto-reconnect);
-        only an explicit `disconnect()` (engine gone) stops it — unless a
-        preconnect gate is still waiting to auto-connect / force-pause.
-        """
+        """(Re)start the 0.5s game-thread tick if it is missing or stale."""
         engine_alive = self.engine is not None and not self.engine.stopped
         if not engine_alive and not self._preconnect_gate:
             return
@@ -1152,7 +1161,6 @@ class MultiplayerClient:
                 if now - self._last_alarm_tick < 5.0:
                     return
             elif now - self._alarm_started_at < 2.0:
-                # Freshly created but not yet due; give the game a breath.
                 return
             self._stop_alarm()
             self._log("NET", "sync alarm stale; restarting")
@@ -1161,6 +1169,7 @@ class MultiplayerClient:
     def _stop_alarm(self):
         game_hooks.cancel_alarm(self._alarm_handle)
         self._alarm_handle = None
+        self._alarm_repeating = False
 
     def _decide_travel(self, request_id, zone_id):
         if self.travel_controller is not None:
@@ -1212,7 +1221,7 @@ class MultiplayerClient:
                         except Exception:
                             pass
                         handle = game_hooks.add_one_off_real_time_alarm(
-                            self, 0.15, self._on_deferred_connect
+                            self._connect_alarm_owner, 0.15, self._on_deferred_connect
                         )
                         if handle is None:
                             self._connect_alarm_armed = False

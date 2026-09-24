@@ -110,7 +110,10 @@ def install_clock_hooks():
         reason = kwargs.get("reason", args[1] if len(args) > 1 else "")
         immediate = kwargs.get("immediate", args[2] if len(args) > 2 else False)
         _send_clock(CLOCK_METHOD_SET, speed, source=source, reason=reason, immediate=immediate)
-        return None
+        # Apply locally too — otherwise the joiner UI pause button does nothing
+        # until a TIME_SYNC round-trip (and that never arrives if the sync
+        # alarm is asleep while paused).
+        return original(self, speed, *args, **kwargs)
 
     @Override(GameClock.push_speed, role=Role.JOINER)
     def _push_speed_joiner(original, self, speed, *args, **kwargs):
@@ -126,7 +129,7 @@ def install_clock_hooks():
         if reason in _IGNORED_PAUSE_REASONS:
             return None
         _send_clock(CLOCK_METHOD_PUSH, speed, source=source, reason=reason, immediate=immediate)
-        return None
+        return original(self, speed, *args, **kwargs)
 
     @Override(GameClock.pop_speed, role=Role.JOINER)
     def _pop_speed_joiner(original, self, speed=None, *args, **kwargs):
@@ -138,7 +141,9 @@ def install_clock_hooks():
         if reason in _IGNORED_PAUSE_REASONS:
             return None
         _send_clock(CLOCK_METHOD_POP, speed if speed is not None else 0, source=source, reason=reason, immediate=immediate)
-        return None
+        if speed is not None:
+            return original(self, speed, *args, **kwargs)
+        return original(self, *args, **kwargs)
 
     return True
 

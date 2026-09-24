@@ -66,6 +66,9 @@ def add_alarm_real_time(owner, seconds, callback, repeating=False):
     invoked with the (single) AlarmHandle argument. ``AlarmHandle`` keeps a
     ``weakref.ref(owner)``, so ``owner`` must be weakref-able (a plain
     ``object()`` is NOT; any class instance is).
+
+    Prefer ``use_sleep_time=False`` first: with True, ticks stop while the
+    game is paused, which killed joiner sync until mp.status revived them.
     """
     handle = None
     try:
@@ -74,6 +77,8 @@ def add_alarm_real_time(owner, seconds, callback, repeating=False):
             return None
         span = _real_time_span(seconds)
         for kwargs in (
+            dict(repeating=repeating, use_sleep_time=False, cross_zone=True),
+            dict(repeating=repeating, use_sleep_time=False, cross_zone=False),
             dict(repeating=repeating, use_sleep_time=True, cross_zone=False),
             dict(repeating=repeating),
         ):
