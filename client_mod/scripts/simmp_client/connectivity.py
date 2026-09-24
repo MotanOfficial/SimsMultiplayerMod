@@ -81,10 +81,10 @@ class MultiplayerClient:
         self._pending_connect_host = None
         self._pending_connect_port = None
         self._next_pending_connect_at = 0.0
+        self._connect_alarm_armed = False
         self._reconnect_attempt = 0
         self._next_reconnect_at = 0.0
-        self._alarm_started_at = 0.0
-        self._last_alarm_tick = 0.0
+        self._alarm_started_at = 0.0        self._last_alarm_tick = 0.0
         self._last_alarm_fail_log = 0.0
         self._last_tick_error = None
         self.save_inbox = SaveInbox()
@@ -934,13 +934,17 @@ class MultiplayerClient:
                         "Holding paused until %d players present (%d connected)"
                         % (self.min_players, self._connected_player_count()),
                     )
-            elif was_closed:
-                self._gate_open_since = now
-                if now >= self._clock_echo_until:
-                    self._clock_echo_until = now + self._clock_echo_window
-                    self._apply_room_speed(payload["speed"])
-            elif now >= self._clock_echo_until:
-                self._apply_room_speed(payload["speed"])
+            else:
+                if was_closed:
+                    self._gate_open_since = now
+                # Always apply the authoritative room speed when local differs.
+                # The old echo-window skip updated time_speed (UI "paused")
+                # without touching the clock — joiners kept moving while the
+                # HUD said paused, and pause/resume only worked on the host.
+                local = game_hooks.get_clock_speed()
+                desired = payload["speed"]
+                if local is None or local != desired or was_closed:
+                    self._apply_room_speed(desired)
             self._log("SYNC", "TIME_SYNC speed=%s by=%s gate=%s" % (
                 payload["speed"],
                 payload.get("player_id"),
@@ -1107,9 +1111,19 @@ class MultiplayerClient:
             self._log("NET", "sync alarm started")
 
     def _on_alarm_chained(self, *args):
-        # Fired by the one-off alarm scheduled in `_start_alarm`: run one
-        # tick, then re-arm the next. The pending handle is spent either way.
+        # Fired by the one-off alarm scheduled in `_start_alarm`.
+        #
+        # CRITICAL: re-arm the NEXT tick BEFORE running work. Connecting
+        # (and other mid-tick scheduling) from inside a callback used to
+        # invalidate the owner’s pending alarm on this game build — the
+        # joiner then sat paused with a dead tick until mp.status called
+        # ensure_alarm(). Arming first keeps the chain alive across TCP
+        # connect / deep role activation.
         self._alarm_handle = None
+        try:
+            self.ensure_alarm()
+        except Exception:
+            pass
         try:
             self._on_alarm(*args)
         finally:
@@ -1180,22 +1194,27 @@ class MultiplayerClient:
     def _on_alarm(self, *args):
         try:
             self._last_alarm_tick = time.time()
-            # Drive auto-connect from the live sync tick. Nested one-shot
-            # alarms used to "succeed" (non-None handle) then never fire,
-            # clearing the config permanently until mp.autoconnect.
+            # Arm a *separate* short one-shot for TCP connect. Never dial from
+            # inside this callback — scheduling connect here used to kill the
+            # joiner's sync chain until mp.status revived it.
             if self._preconnect_gate:
                 engine = self.engine
                 if engine is None or not engine.connected:
                     now = time.time()
-                    if now >= self._next_pending_connect_at:
+                    if now >= self._next_pending_connect_at and not self._connect_alarm_armed:
                         self._next_pending_connect_at = now + 3.0
+                        self._connect_alarm_armed = True
                         try:
                             from simmp_client import sims4_plugin
 
                             sims4_plugin.schedule_auto_connect()
-                            sims4_plugin.try_pending_connect(self)
                         except Exception:
                             pass
+                        handle = game_hooks.add_one_off_real_time_alarm(
+                            self, 0.15, self._on_deferred_connect
+                        )
+                        if handle is None:
+                            self._connect_alarm_armed = False
             engine = self.engine
             if engine is not None and engine.connected:
                 self._reconnect_attempt = 0
@@ -1223,6 +1242,24 @@ class MultiplayerClient:
                     self._log("ERROR", "sync tick failed: %s" % key)
                 except Exception:
                     pass
+        return True
+
+    def _on_deferred_connect(self, *args):
+        """TCP connect outside the sync-tick callback so the chain survives."""
+        self._connect_alarm_armed = False
+        try:
+            from simmp_client import sims4_plugin
+
+            sims4_plugin.try_pending_connect(self)
+        except Exception as exc:
+            try:
+                self._log("ERROR", "deferred auto-connect failed: %s" % exc)
+            except Exception:
+                pass
+        try:
+            self.ensure_alarm()
+        except Exception:
+            pass
         return True
 
     def _maybe_log_sync_health(self):

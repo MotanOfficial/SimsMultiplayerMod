@@ -154,6 +154,10 @@ def _install_zone_ready_retry():
                         client = cheat_commands.get_client()
                         if getattr(client, "_preconnect_gate", False):
                             client.begin_preconnect_gate()
+                        try:
+                            client.ensure_alarm()
+                        except Exception:
+                            pass
                     except Exception:
                         pass
                     return orig(self, *args, **kwargs)
