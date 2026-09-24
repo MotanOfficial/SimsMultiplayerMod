@@ -84,7 +84,8 @@ class MultiplayerClient:
         self._connect_alarm_armed = False
         self._reconnect_attempt = 0
         self._next_reconnect_at = 0.0
-        self._alarm_started_at = 0.0        self._last_alarm_tick = 0.0
+        self._alarm_started_at = 0.0
+        self._last_alarm_tick = 0.0
         self._last_alarm_fail_log = 0.0
         self._last_tick_error = None
         self.save_inbox = SaveInbox()
