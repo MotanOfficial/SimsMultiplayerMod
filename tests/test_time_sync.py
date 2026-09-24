@@ -542,15 +542,22 @@ class TimeClientHandlerTests(unittest.TestCase):
         self.assertEqual(client.time_speed, 0)
         setter.assert_called_once_with(0)
 
-    def test_echo_window_suppresses_apply_but_updates_state(self):
+    def test_time_sync_applies_even_inside_echo_window(self):
+        # Echo window used to update time_speed without applying the clock —
+        # joiners showed "paused" while still moving. Authoritative TIME_SYNC
+        # must always change the local clock when it differs.
         client = MultiplayerClient(client_name="Alice")
         client.min_players = 1
         client._clock_echo_until = time_far_future()
-        with mock.patch("simmp_client.connectivity.game_hooks.set_clock_speed") as setter:
+        with mock.patch(
+            "simmp_client.connectivity.game_hooks.get_clock_speed", return_value=1
+        ), mock.patch(
+            "simmp_client.connectivity.game_hooks.set_clock_speed", return_value=2
+        ) as setter:
             client._handle_message(msg.make_time_sync(2))
         self.assertEqual(client.time_speed, 2)
         self.assertFalse(client.time_gate)
-        setter.assert_not_called()
+        setter.assert_called_once_with(2)
 
     def test_gated_time_sync_pauses_even_inside_echo_window(self):
         # Regression: a player who just hit play set an echo window. If a peer
