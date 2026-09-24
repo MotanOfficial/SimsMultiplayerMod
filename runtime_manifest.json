@@ -1,5 +1,5 @@
 {
- "version": "2026-09-24-32a37d6",
+ "version": "2026-09-24-e416b6f",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -23,7 +23,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/connectivity.py",
-   "sha256": "9b9ecce172c91f3ec5e69dbf597759a9b48ac26dc49bfc2105d4a8a8c64c0f75"
+   "sha256": "a5d2742815430c2ee389c25a34a01a2381852add64bd617751589d00ce36ef1e"
   },
   {
    "path": "client_mod/scripts/simmp_client/deep/__init__.py",
@@ -279,7 +279,7 @@
   },
   {
    "path": "client_mod/scripts/simmp_client/sims4_plugin.py",
-   "sha256": "b708993c4f81b3d0e6dcb4bc8b3e826c1149eccd7bd4e9f2149c16b1fcacf739"
+   "sha256": "c5315c1ebc833de765964bb14ffee20101fc3d51ba5f556b49120205e3885e0f"
   },
   {
    "path": "client_mod/scripts/simmp_client/state/__init__.py",
@@ -300,6 +300,10 @@
   {
    "path": "client_mod/scripts/simmp_client/state/world.py",
    "sha256": "8aac425b7cd9397caa372dbfb16f6ece82833f93f8af7997521d8a61572396e1"
+  },
+  {
+   "path": "client_mod/scripts/simmp_client/tick_pump.py",
+   "sha256": "65bb899b5e2efd220e57b3684e9cd541cfd68959a1d9c04fb0a44cbedd826333"
   },
   {
    "path": "client_mod/scripts/simmp_client/ui.py",
@@ -415,7 +419,7 @@
   },
   {
    "path": "tools/launcher_lobby.py",
-   "sha256": "cfcf7fb069f7f53b2eb46e3f358ad0df2338e4c909121d5c3d78248d80c014df"
+   "sha256": "eb900680d0d981efb62582f12e1cdc5509098f2b9cee9f4b6c1dcf87a45f0dd9"
   },
   {
    "path": "tools/launcher_setup.py",
