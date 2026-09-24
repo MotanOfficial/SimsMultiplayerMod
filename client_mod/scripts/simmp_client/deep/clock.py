@@ -26,6 +26,11 @@ _IGNORED_PAUSE_REASONS = frozenset(
         "Layout Manager Set Modal Visible",
         "travelMap",
         "igoUp",
+        # Build/Buy must not pause the shared room clock for the other player.
+        "build_buy",
+        "BuildBuy",
+        "build buy",
+        "Build/Buy",
     )
 )
 
@@ -77,7 +82,7 @@ def _source_int(source):
 
 def _send_clock(method, speed, source=0, reason="", immediate=False):
     reason = reason or ""
-    if reason in _IGNORED_PAUSE_REASONS:
+    if reason in _IGNORED_PAUSE_REASONS or "build" in str(reason).lower():
         return False
     wrapper = WrapperMessage(
         target_client=int(SESSION.host_player_id or 0),
@@ -95,12 +100,35 @@ def _send_clock(method, speed, source=0, reason="", immediate=False):
 
 
 def install_clock_hooks():
+    ok = False
     try:
         from clock import GameClock
     except Exception:
-        return False
+        GameClock = None
 
     from simmp_client.deep.override import Override, Role
+
+    # Build/Buy normally force-pauses the lot. In co-op that freezes everyone
+    # else; mirror the deep-multiplayer approach and no-op the command so only
+    # the builder's local UI is affected (EA still greys the lot for them).
+    try:
+        from server_commands import clock_commands
+
+        bb_fn = getattr(clock_commands, "build_buy_pause_unpause", None)
+        if bb_fn is not None:
+
+            @Override(bb_fn, role=Role.ALL)
+            def _build_buy_pause_unpause(original, *args, **kwargs):
+                if not SESSION.enabled:
+                    return original(*args, **kwargs)
+                return True
+
+            ok = True
+    except Exception:
+        pass
+
+    if GameClock is None:
+        return ok
 
     @Override(GameClock.set_clock_speed, role=Role.JOINER)
     def _set_clock_speed_joiner(original, self, speed, *args, **kwargs):
@@ -126,7 +154,7 @@ def install_clock_hooks():
         elif len(args) >= 3:
             reason = args[2]
         immediate = kwargs.get("immediate", args[3] if len(args) > 3 else False)
-        if reason in _IGNORED_PAUSE_REASONS:
+        if reason in _IGNORED_PAUSE_REASONS or "build" in str(reason).lower():
             return None
         _send_clock(CLOCK_METHOD_PUSH, speed, source=source, reason=reason, immediate=immediate)
         return original(self, speed, *args, **kwargs)
@@ -138,14 +166,61 @@ def install_clock_hooks():
         source = kwargs.get("source", args[0] if len(args) > 0 else 0)
         reason = kwargs.get("reason", args[1] if len(args) > 1 else "")
         immediate = kwargs.get("immediate", args[2] if len(args) > 2 else False)
-        if reason in _IGNORED_PAUSE_REASONS:
+        if reason in _IGNORED_PAUSE_REASONS or "build" in str(reason).lower():
             return None
         _send_clock(CLOCK_METHOD_POP, speed if speed is not None else 0, source=source, reason=reason, immediate=immediate)
         if speed is not None:
             return original(self, speed, *args, **kwargs)
         return original(self, *args, **kwargs)
 
+    @Override(GameClock.push_speed, role=Role.HOST)
+    def _push_speed_host(original, self, speed, *args, **kwargs):
+        reason = kwargs.get("reason", args[2] if len(args) > 2 else (args[1] if len(args) > 1 else ""))
+        if "reason" in kwargs:
+            reason = kwargs["reason"]
+        elif len(args) >= 3:
+            reason = args[2]
+        if SESSION.enabled and (reason in _IGNORED_PAUSE_REASONS or "build" in str(reason).lower()):
+            return None
+        return original(self, speed, *args, **kwargs)
+
+    @Override(GameClock.pop_speed, role=Role.HOST)
+    def _pop_speed_host(original, self, speed=None, *args, **kwargs):
+        reason = kwargs.get("reason", args[1] if len(args) > 1 else "")
+        if SESSION.enabled and (reason in _IGNORED_PAUSE_REASONS or "build" in str(reason).lower()):
+            return None
+        if speed is not None:
+            return original(self, speed, *args, **kwargs)
+        return original(self, *args, **kwargs)
+
+    # Joiners never author absolute clock broadcasts — host owns sim time.
+    sync_fn = getattr(GameClock, "_sync_clock_and_broadcast_gameclock", None)
+    if sync_fn is not None:
+
+        @Override(sync_fn, role=Role.JOINER)
+        def _sync_clock_joiner(original, self, *args, **kwargs):
+            return None
+
     return True
+
+
+def broadcast_absolute_game_time():
+    """Host helper: push current absolute ticks to joiners via SetGameTime."""
+    if not SESSION.enabled or not SESSION.is_host:
+        return False
+    try:
+        import services
+
+        game_clock = services.game_clock_service()
+        if game_clock is None:
+            return False
+        sync = getattr(game_clock, "_sync_clock_and_broadcast_gameclock", None)
+        if sync is None:
+            return False
+        sync()
+        return True
+    except Exception:
+        return False
 
 
 @MessageHandler(KIND_SET_CLOCK_SPEED)
@@ -168,6 +243,8 @@ def _host_set_clock_speed(wrapper):
         speed = speed_value
     method = int(body.get("method") or CLOCK_METHOD_SET)
     reason = body.get("reason") or ""
+    if reason in _IGNORED_PAUSE_REASONS or "build" in reason.lower():
+        return
     immediate = bool(body.get("immediate"))
     source = body.get("source")
     try:

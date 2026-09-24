@@ -107,6 +107,8 @@ class MultiplayerClient:
         self._ready_pending_reason = ""
         self.clock_interval = 1.5
         self._last_clock_tick = 0.0
+        self._last_absolute_time_sync = 0.0
+        self._absolute_time_interval = 5.0
         self._clock_echo_until = 0.0
         self._gate_open_since = 0.0
         self._clock_echo_window = 2.0
@@ -598,6 +600,24 @@ class MultiplayerClient:
             if engine.send_time_speed(local, ticks=ticks):
                 self.time_speed = local
                 self._log("TIME", "TIME_SPEED %s (local change)" % local)
+
+        # Host: periodically push absolute sim time so joiners do not drift
+        # minutes ahead between pause snaps.
+        if (
+            getattr(self, "_deep", None) is not None
+            and getattr(self._deep, "is_host", False)
+            and local
+            and local > 0
+            and now - self._last_absolute_time_sync >= self._absolute_time_interval
+        ):
+            self._last_absolute_time_sync = now
+            try:
+                from simmp_client.deep import clock as deep_clock
+
+                if deep_clock.broadcast_absolute_game_time():
+                    pass
+            except Exception:
+                pass
 
     def _current_zone_id(self):
         try:
