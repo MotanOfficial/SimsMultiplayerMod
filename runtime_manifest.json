@@ -1,5 +1,5 @@
 {
- "version": "2026-09-24-d58bd33",
+ "version": "2026-09-24-3848bb0",
  "files": [
   {
    "path": "client_mod/build_script_mod.py",
@@ -471,7 +471,7 @@
   },
   {
    "path": "tools/updater.py",
-   "sha256": "aea0a3fa169a01d6ad1ff5025108c769fd7e490018a38764766155a4acd318f4"
+   "sha256": "d41193cf40ae2cdf1d85e820d4c76cb57dea7675499a9f55e6ffbcca16e8f71a"
   }
  ]
 }

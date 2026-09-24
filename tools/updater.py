@@ -132,7 +132,15 @@ def fetch_text(url, timeout=8.0, fetcher=None):
         except Exception:  # noqa: BLE001
             return None
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Sims4Multiplayer-updater",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.read().decode("utf-8")
     except Exception:  # noqa: BLE001
         return None
@@ -146,7 +154,15 @@ def fetch_bytes(url, timeout=10.0, fetcher=None):
         except Exception:  # noqa: BLE001
             return None
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Sims4Multiplayer-updater",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.read()
     except Exception:  # noqa: BLE001
         return None
@@ -175,9 +191,42 @@ def validate_manifest(manifest):
     return manifest
 
 
+def _fetch_manifest_via_github_api(manifest_path=MANIFEST_PATH, ref=REF, timeout=8.0):
+    """Fresh tip manifest via api.github.com (not edge-cached like raw CDN)."""
+    api = "https://api.github.com/repos/%s/%s/contents/%s?ref=%s" % (
+        OWNER,
+        REPO,
+        manifest_path,
+        ref,
+    )
+    try:
+        request = urllib.request.Request(
+            api,
+            headers={
+                "Accept": "application/vnd.github.raw",
+                "User-Agent": "Sims4Multiplayer-updater",
+                "Cache-Control": "no-cache",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.read().decode("utf-8")
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def fetch_manifest(base, manifest_path=MANIFEST_PATH, fetcher=None):
-    """Remote manifest dict, or None when the fetch/parse fails."""
-    body = fetch_text(base + manifest_path, fetcher=fetcher)
+    """Remote manifest dict, or None when the fetch/parse fails.
+
+    For the MotanOfficial raw.githubusercontent base, prefer the GitHub
+    Contents API first — the raw CDN caches branch tips for ``max-age=300``,
+    which made Check for updates miss a just-pushed release for up to 5 min.
+    """
+    body = None
+    expected = "https://raw.githubusercontent.com/%s/%s/%s" % (OWNER, REPO, REF)
+    if fetcher is None and base.rstrip("/") == expected:
+        body = _fetch_manifest_via_github_api(manifest_path)
+    if body is None:
+        body = fetch_text(base + manifest_path, fetcher=fetcher)
     if body is None:
         return None
     try:
